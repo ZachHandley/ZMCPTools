@@ -10,6 +10,7 @@ import {
   CommunicationService,
   MemoryService,
 } from "../services/index.js";
+import { setupMonitorCommand } from "./monitor.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -554,6 +555,9 @@ program
     }
   });
 
+// Monitor command
+setupMonitorCommand(program);
+
 // Add help command that shows enhanced usage
 program
   .command("help")
@@ -598,6 +602,8 @@ program
 
     console.log(`${colors.cyan}📊 System:${colors.reset}`);
     console.log(`   claude-mcp-tools status               # System status`);
+    console.log(`   claude-mcp-tools monitor              # Live monitoring dashboard`);
+    console.log(`   claude-mcp-tools monitor -w -o html   # HTML monitoring with auto-refresh`);
     console.log(`   claude-mcp-tools server               # Start MCP server`);
     console.log(
       `   claude-mcp-tools migrate              # Migrate to Drizzle ORM`

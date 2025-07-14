@@ -1,0 +1,11 @@
+{
+  "enableRateLimitHandling": true,
+  "rateLimitWindow": 18000000,
+  "rateLimitCooldown": 30000,
+  "maxRestarts": 5,
+  "restartDelay": 1000,
+  "restartBackoffMultiplier": 2,
+  "maxRestartDelay": 60000,
+  "verbose": false,
+  "_comment": "rateLimitWindow: 5 hours = 18000000ms for Claude Pro/Max users"
+}

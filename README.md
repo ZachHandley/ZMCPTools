@@ -52,6 +52,15 @@ Agents run on daemon threads and need this permission to execute properly.
 - **Project Analysis**: Comprehensive code structure analysis with symbol extraction
 - **Smart File Operations**: Pattern-based file operations with fuzzy matching
 
+### 📊 **Real-Time Monitoring Dashboard**
+- **Live Agent Monitoring**: Track active agents, tasks, and orchestrations in real-time
+- **Multiple Output Formats**: CLI, HTML, and JSON outputs for different use cases
+- **Process Visibility**: See agent PIDs, status, heartbeats, and room communications
+- **Task Progress Tracking**: Monitor task assignments, dependencies, and completion
+- **Flexible Filtering**: Filter by repository, status, agent type, or room
+- **Auto-Refresh**: Watch mode with configurable refresh intervals
+- **Web Interface**: Serve monitoring data via HTTP for browser-based viewing
+
 ## 🚀 Quick Installation
 
 ### Prerequisites
@@ -247,6 +256,13 @@ zmcp-tools memory store -t <title> -c <content>
 # Communication rooms
 zmcp-tools room list
 zmcp-tools room join -n <name>
+
+# Real-time monitoring
+zmcp-tools monitor                    # Live CLI dashboard
+zmcp-tools monitor -w                 # Watch mode with auto-refresh
+zmcp-tools monitor -o html --port 3456  # HTML interface on http://localhost:3456
+zmcp-tools monitor -o json            # JSON output for scripting
+zmcp-tools monitor --repository /path  # Filter by repository
 ```
 
 ### 🛠️ Development Commands
@@ -628,6 +644,72 @@ pnpm install                        # Clean dependency install
 - Add comprehensive error handling with MCP compliance
 - Include tool annotations for destructive/read-only operations
 - Test all changes with the actual MCP server integration
+
+## 🔄 Comparison to Alternatives
+
+### Why ZMCPTools?
+
+ZMCPTools stands out from other MCP tools with unique features designed for professional development workflows:
+
+| Feature | ZMCPTools | Basic MCP Tools | Other Agent Systems |
+|---------|-----------|-----------------|-------------------|
+| **Multi-Agent Orchestration** | ✅ AI Architect auto-spawns teams | ❌ Manual coordination | ⚠️ Limited agent types |
+| **Foundation Sessions** | ✅ 85-90% cost reduction | ❌ Full token costs | ❌ No session sharing |
+| **Vector Search** | ✅ Built-in LanceDB | ❌ No semantic search | ⚠️ External dependencies |
+| **Agent Dependencies** | ✅ Smart task ordering | ❌ Manual sequencing | ⚠️ Basic workflows |
+| **Real-time Collaboration** | ✅ Agent chat rooms | ❌ No communication | ⚠️ Log-based only |
+| **Knowledge Graph** | ✅ Cross-agent learning | ❌ No memory | ⚠️ Per-agent only |
+| **Documentation Intelligence** | ✅ Scrape & vectorize | ❌ Manual reading | ❌ No doc integration |
+| **TypeScript Native** | ✅ Full type safety | ⚠️ JavaScript only | ⚠️ Python required |
+| **Browser Automation** | ✅ Playwright + AI analysis | ❌ Basic fetch only | ⚠️ Separate tools |
+| **Project Analysis** | ✅ Symbol extraction | ❌ File listing only | ⚠️ Basic parsing |
+
+### Unique Advantages
+
+**🎯 Architect-Led Development**
+- Unlike simple tool collections, ZMCPTools provides an AI architect that analyzes your objective and automatically spawns specialized agent teams
+- Agents work with proper dependencies (backend → frontend → testing → documentation)
+- Real-time progress monitoring through agent chat rooms
+
+**💰 Foundation Session Caching**
+- Unique cost optimization through shared context management
+- Multiple agents reuse the same conversation context
+- 85-90% token cost reduction compared to independent agents
+- No other MCP tool offers this level of cost efficiency
+
+**🧠 Persistent Cross-Agent Learning**
+- Knowledge graph stores insights across agent sessions
+- Vector-powered semantic search for finding relevant patterns
+- Agents learn from previous failures and successes
+- Shared memory enables true team collaboration
+
+**📚 Documentation-Driven Development**
+- Scrape and vectorize documentation websites
+- Semantic search across all scraped docs
+- Agents reference documentation during implementation
+- No need for manual documentation reading
+
+**🚀 Production-Ready TypeScript**
+- Native TypeScript with full type safety
+- No Python dependencies or runtime requirements
+- Better performance through compiled JavaScript
+- Professional tooling with hot-reload development
+
+### When to Choose ZMCPTools
+
+**Choose ZMCPTools if you need:**
+- Complex multi-step implementations requiring coordination
+- Cost-effective multi-agent workflows
+- Documentation-aware development
+- Cross-agent learning and memory
+- Production TypeScript tooling
+- Real-time agent monitoring
+
+**Consider alternatives if you only need:**
+- Simple file operations
+- Basic single-agent tasks
+- Minimal tool integration
+- No coordination requirements
 
 ## 📜 License
 

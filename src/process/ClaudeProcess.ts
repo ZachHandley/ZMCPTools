@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
-import path, { join } from "path";
+import path, { join, resolve } from "path";
 import { tmpdir, homedir } from "os";
 import { execSync, execFile } from "child_process";
 import { spawn } from "child_process";
@@ -83,8 +83,71 @@ export class ClaudeProcess extends EventEmitter {
       // Build CLI command without the prompt (we'll pipe it via stdin)
       const cliArgs = this.buildCliCommandWithStdin();
       
+      // Determine if we should use the zmcp-agent-wrapper
+      const useWrapper = this.config.environmentVars?.AGENT_ID && 
+                        this.config.agentType && 
+                        this.config.workingDirectory;
+      
+      let command: string;
+      let commandArgs: string[];
+      
+      if (useWrapper) {
+        // Use the zmcp-agent-wrapper for better process management
+        // Try multiple locations for the wrapper
+        const wrapperName = 'zmcp-agent-wrapper.cjs';
+        const possiblePaths = [
+          // When running from dist
+          resolve(__dirname, '..', '..', wrapperName),
+          // When running from src with tsx in MCP server
+          resolve(homedir(), '.mcptools', 'server', wrapperName),
+          // When running from project root
+          resolve(__dirname, '..', '..', '..', wrapperName),
+          // Fallback to dist directory from anywhere
+          resolve(homedir(), '.mcptools', 'server', 'dist', wrapperName)
+        ];
+        
+        let wrapperPath: string | null = null;
+        for (const path of possiblePaths) {
+          if (existsSync(path)) {
+            wrapperPath = path;
+            break;
+          }
+        }
+        
+        // Check if wrapper exists, fall back to direct spawn if not found
+        if (!wrapperPath) {
+          process.stderr.write(`⚠️  ${wrapperName} not found in any expected location, falling back to direct spawn\n`);
+          process.stderr.write(`Searched paths: ${possiblePaths.join(', ')}\n`);
+          command = 'claude';
+          commandArgs = cliArgs;
+        } else {
+          // Extract agent information from environment variables
+          const agentType = this.config.agentType || 'general';
+          const projectContext = path.basename(this.config.workingDirectory);
+          const agentId = this.config.environmentVars?.AGENT_ID || 'unknown';
+          
+          // Build wrapper command: zmcp-agent-wrapper.cjs <agent-type> <project-context> <agent-id> -- claude [args]
+          command = 'node';
+          commandArgs = [
+            wrapperPath,
+            agentType,
+            projectContext,
+            agentId,
+            '--',
+            'claude',
+            ...cliArgs
+          ];
+          
+          process.stderr.write(`Using zmcp-agent-wrapper for ${agentType} agent ${agentId} in ${projectContext}\n`);
+        }
+      } else {
+        // Fall back to direct claude spawn for non-agent uses
+        command = 'claude';
+        commandArgs = cliArgs;
+      }
+      
       // Use spawn for streaming output
-      this.childProcess = spawn('claude', cliArgs, {
+      this.childProcess = spawn(command, commandArgs, {
         cwd: this.config.workingDirectory,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, ...this.config.environmentVars }

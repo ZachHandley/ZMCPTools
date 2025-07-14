@@ -175,3 +175,6 @@ web_cache/
 .treesummary/
 
 node_modules/
+# Test outputs
+scripts/*.log
+scripts/*.tmp
