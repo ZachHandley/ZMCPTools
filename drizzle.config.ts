@@ -2,26 +2,16 @@ import { defineConfig } from 'drizzle-kit';
 import { join } from 'path';
 import { homedir } from 'os';
 
-// Get project root - works in both development and production
-const projectRoot = process.cwd();
+// Use absolute paths to avoid path resolution issues
+const migrationsDir = join(homedir(), '.mcptools', 'data', 'migrations');
+const dbPath = join(homedir(), '.mcptools', 'data', 'claude_mcp_tools.db');
 
 const config = defineConfig({
-  schema: [
-    // List individual schema files to avoid glob issues
-    join(projectRoot, 'src', 'schemas', 'agents.ts'),
-    join(projectRoot, 'src', 'schemas', 'communication.ts'),
-    join(projectRoot, 'src', 'schemas', 'knowledge-graph.ts'),
-    join(projectRoot, 'src', 'schemas', 'logs.ts'),
-    join(projectRoot, 'src', 'schemas', 'memories.ts'),
-    join(projectRoot, 'src', 'schemas', 'plans.ts'),
-    join(projectRoot, 'src', 'schemas', 'scraping.ts'),
-    join(projectRoot, 'src', 'schemas', 'tasks.ts'),
-  ],
-  out: join(homedir(), '.mcptools', 'data', 'migrations'),  // Store migrations with data
+  schema: './src/schemas/*.ts',
+  out: migrationsDir,
   dialect: 'sqlite',
   dbCredentials: {
-    // Use consistent ~/.mcptools/data directory
-    url: join(homedir(), '.mcptools', 'data', 'claude_mcp_tools.db'),
+    url: dbPath,
   },
   verbose: true,
   strict: true,

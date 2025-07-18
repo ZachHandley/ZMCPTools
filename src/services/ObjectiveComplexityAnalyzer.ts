@@ -1,11 +1,11 @@
 import { Logger } from '../utils/logger.js';
-import type { TaskType } from '../schemas/index.js';
+import type { ObjectiveType } from '../schemas/index.js';
 
 export type ModelType = 'claude-3-7-sonnet-latest' | 'claude-sonnet-4-0' | 'claude-opus-4-0';
 export type ComplexityLevel = 'simple' | 'moderate' | 'complex';
 export type AgentSpecialization = 'frontend' | 'backend' | 'testing' | 'documentation' | 'devops' | 'researcher' | 'architect' | 'generalist';
 
-export interface TaskComplexityAnalysis {
+export interface ObjectiveComplexityAnalysis {
   complexityLevel: ComplexityLevel;
   recommendedModel: ModelType;
   requiredSpecializations: AgentSpecialization[];
@@ -28,7 +28,7 @@ export interface AnalysisConfig {
 /**
  * Analyzes task descriptions to determine complexity and suggest optimal model/agent selection
  */
-export class TaskComplexityAnalyzer {
+export class ObjectiveComplexityAnalyzer {
   private logger: Logger;
 
   // Keywords that indicate complexity levels
@@ -74,7 +74,7 @@ export class TaskComplexityAnalyzer {
   };
 
   constructor() {
-    this.logger = new Logger('TaskComplexityAnalyzer');
+    this.logger = new Logger('ObjectiveComplexityAnalyzer');
   }
 
   /**
@@ -109,31 +109,31 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Analyze a task description to determine complexity and optimal model selection
+   * Analyze an objective description to determine complexity and optimal model selection
    */
-  public async analyzeTask(
-    taskDescription: string,
-    taskType?: TaskType,
+  public async analyzeObjective(
+    objectiveDescription: string,
+    objectiveType?: ObjectiveType,
     repositoryPath?: string,
     config: AnalysisConfig = {}
-  ): Promise<TaskComplexityAnalysis> {
-    this.logger.debug('Starting task complexity analysis', {
-      taskDescriptionLength: taskDescription.length,
-      taskType,
+  ): Promise<ObjectiveComplexityAnalysis> {
+    this.logger.debug('Starting objective complexity analysis', {
+      objectiveDescriptionLength: objectiveDescription.length,
+      objectiveType,
       repositoryPath,
       config
     });
 
     const reasoningSteps: string[] = [];
-    const lowercaseDesc = taskDescription.toLowerCase();
+    const lowercaseDesc = objectiveDescription.toLowerCase();
 
     // Step 0: Check for 911 emergency - user frustration indicators
     reasoningSteps.push('Step 0: Checking for user frustration indicators (911 emergency mode)');
     const emergencyMode = this.checkForUserFrustration(lowercaseDesc, reasoningSteps);
 
     // Step 1: Initial complexity assessment
-    reasoningSteps.push('Step 1: Analyzing task description for complexity indicators');
-    const complexityLevel = this.assessComplexity(lowercaseDesc, taskType, reasoningSteps, emergencyMode);
+    reasoningSteps.push('Step 1: Analyzing objective description for complexity indicators');
+    const complexityLevel = this.assessComplexity(lowercaseDesc, objectiveType, reasoningSteps, emergencyMode);
 
     // Step 2: Determine recommended model based on complexity
     reasoningSteps.push('Step 2: Selecting optimal model based on complexity level');
@@ -141,22 +141,22 @@ export class TaskComplexityAnalyzer {
 
     // Step 3: Identify required specializations
     reasoningSteps.push('Step 3: Identifying required agent specializations');
-    const requiredSpecializations = this.identifySpecializations(lowercaseDesc, taskType, reasoningSteps);
+    const requiredSpecializations = this.identifySpecializations(lowercaseDesc, objectiveType, reasoningSteps);
 
     // Step 4: Estimate duration
-    reasoningSteps.push('Step 4: Estimating task duration');
+    reasoningSteps.push('Step 4: Estimating objective duration');
     const estimatedDuration = config.estimateDuration !== false ? 
       this.estimateDuration(complexityLevel, requiredSpecializations, lowercaseDesc, reasoningSteps) : 30;
 
     // Step 5: Assess risk factors
     reasoningSteps.push('Step 5: Identifying potential risk factors');
     const riskFactors = config.evaluateRisks !== false ? 
-      this.assessRiskFactors(lowercaseDesc, taskType, reasoningSteps) : [];
+      this.assessRiskFactors(lowercaseDesc, objectiveType, reasoningSteps) : [];
 
     // Step 6: Identify dependencies
-    reasoningSteps.push('Step 6: Analyzing task dependencies');
+    reasoningSteps.push('Step 6: Analyzing objective dependencies');
     const dependencies = config.considerDependencies !== false ? 
-      this.identifyDependencies(lowercaseDesc, taskType, reasoningSteps) : [];
+      this.identifyDependencies(lowercaseDesc, objectiveType, reasoningSteps) : [];
 
     // Step 7: Determine workflow phase
     reasoningSteps.push('Step 7: Determining optimal workflow phase');
@@ -172,7 +172,7 @@ export class TaskComplexityAnalyzer {
       }
     }
 
-    const analysis: TaskComplexityAnalysis = {
+    const analysis: ObjectiveComplexityAnalysis = {
       complexityLevel,
       recommendedModel,
       requiredSpecializations,
@@ -185,7 +185,7 @@ export class TaskComplexityAnalyzer {
       frustrationIndicators: emergencyMode ? frustrationIndicators : undefined
     };
 
-    this.logger.info('Task complexity analysis completed', {
+    this.logger.info('Objective complexity analysis completed', {
       complexityLevel,
       recommendedModel,
       specializations: requiredSpecializations.length,
@@ -197,11 +197,11 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Assess the complexity level of a task
+   * Assess the complexity level of an objective
    */
   private assessComplexity(
     lowercaseDesc: string, 
-    taskType?: TaskType, 
+    objectiveType?: ObjectiveType, 
     reasoningSteps: string[] = [],
     emergencyMode: boolean = false
   ): ComplexityLevel {
@@ -230,25 +230,25 @@ export class TaskComplexityAnalyzer {
       }
     }
 
-    // Task type considerations
-    if (taskType) {
-      switch (taskType) {
+    // Objective type considerations
+    if (objectiveType) {
+      switch (objectiveType) {
         case 'feature':
         case 'deployment':
         case 'analysis':
           complexityScore += 1;
-          indicators.push(`Task type "${taskType}" adds moderate complexity`);
+          indicators.push(`Objective type "${objectiveType}" adds moderate complexity`);
           break;
         case 'documentation':
         case 'setup':
         case 'maintenance':
           complexityScore -= 1;
-          indicators.push(`Task type "${taskType}" suggests simpler complexity`);
+          indicators.push(`Objective type "${objectiveType}" suggests simpler complexity`);
           break;
         case 'refactor':
         case 'optimization':
           complexityScore += 2;
-          indicators.push(`Task type "${taskType}" adds high complexity`);
+          indicators.push(`Objective type "${objectiveType}" adds high complexity`);
           break;
       }
     }
@@ -292,7 +292,7 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Select the optimal model based on complexity and task characteristics
+   * Select the optimal model based on complexity and objective characteristics
    */
   private selectModel(
     complexityLevel: ComplexityLevel, 
@@ -316,10 +316,10 @@ export class TaskComplexityAnalyzer {
     
     if (complexityLevel === 'simple') {
       recommendedModel = 'claude-3-7-sonnet-latest';
-      considerations.push('Simple tasks can use efficient 3.7 Sonnet for cost optimization');
+      considerations.push('Simple objectives can use efficient 3.7 Sonnet for cost optimization');
     } else {
       recommendedModel = 'claude-sonnet-4-0';
-      considerations.push('Moderate/complex tasks require advanced Sonnet 4.0 capabilities');
+      considerations.push('Moderate/complex objectives require advanced Sonnet 4.0 capabilities');
     }
 
     // Override for specific high-complexity scenarios
@@ -330,10 +330,10 @@ export class TaskComplexityAnalyzer {
 
     if (requiresOpus && complexityLevel === 'complex') {
       recommendedModel = 'claude-opus-4-0';
-      considerations.push('High-complexity task with strategic elements requires Opus 4.0');
+      considerations.push('High-complexity objective with strategic elements requires Opus 4.0');
     }
 
-    // Safe tasks can use 3.7 Sonnet even if moderate complexity
+    // Safe objectives can use 3.7 Sonnet even if moderate complexity
     const safeOperations = [
       'format', 'template', 'documentation', 'example', 'demo', 'status'
     ].some(keyword => lowercaseDesc.includes(keyword));
@@ -350,11 +350,11 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Identify required agent specializations based on task content
+   * Identify required agent specializations based on objective content
    */
   private identifySpecializations(
     lowercaseDesc: string, 
-    taskType?: TaskType, 
+    objectiveType?: ObjectiveType, 
     reasoningSteps: string[] = []
   ): AgentSpecialization[] {
     const specializations = new Set<AgentSpecialization>();
@@ -371,24 +371,24 @@ export class TaskComplexityAnalyzer {
       }
     }
 
-    // Task type implications
-    if (taskType) {
-      switch (taskType) {
+    // Objective type implications
+    if (objectiveType) {
+      switch (objectiveType) {
         case 'documentation':
           specializations.add('documentation');
-          matches.push('Task type implies documentation specialization');
+          matches.push('Objective type implies documentation specialization');
           break;
         case 'testing':
           specializations.add('testing');
-          matches.push('Task type implies testing specialization');
+          matches.push('Objective type implies testing specialization');
           break;
         case 'deployment':
           specializations.add('devops');
-          matches.push('Task type implies devops specialization');
+          matches.push('Objective type implies devops specialization');
           break;
         case 'analysis':
           specializations.add('researcher');
-          matches.push('Task type implies research specialization');
+          matches.push('Objective type implies research specialization');
           break;
       }
     }
@@ -413,7 +413,7 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Estimate task duration based on complexity and specializations
+   * Estimate objective duration based on complexity and specializations
    */
   private estimateDuration(
     complexityLevel: ComplexityLevel, 
@@ -454,7 +454,7 @@ export class TaskComplexityAnalyzer {
    */
   private assessRiskFactors(
     lowercaseDesc: string, 
-    taskType?: TaskType, 
+    objectiveType?: ObjectiveType, 
     reasoningSteps: string[] = []
   ): string[] {
     const risks: string[] = [];
@@ -473,11 +473,11 @@ export class TaskComplexityAnalyzer {
       }
     }
 
-    // Task type specific risks
-    if (taskType === 'deployment') {
+    // Objective type specific risks
+    if (objectiveType === 'deployment') {
       risks.push('Deployment risk: potential service disruption');
     }
-    if (taskType === 'refactor') {
+    if (objectiveType === 'refactor') {
       risks.push('Refactoring risk: potential behavior changes');
     }
 
@@ -487,11 +487,11 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Identify task dependencies
+   * Identify objective dependencies
    */
   private identifyDependencies(
     lowercaseDesc: string, 
-    taskType?: TaskType, 
+    objectiveType?: ObjectiveType, 
     reasoningSteps: string[] = []
   ): string[] {
     const dependencies: string[] = [];
@@ -516,7 +516,7 @@ export class TaskComplexityAnalyzer {
   }
 
   /**
-   * Determine the optimal workflow phase for this task
+   * Determine the optimal workflow phase for this objective
    */
   private determineWorkflowPhase(
     lowercaseDesc: string, 
@@ -543,17 +543,17 @@ export class TaskComplexityAnalyzer {
       return 'cleanup';
     }
 
-    // Default to execution for most implementation tasks
-    reasoningSteps.push('   Phase: Execution (default for implementation tasks)');
+    // Default to execution for most implementation objectives
+    reasoningSteps.push('   Phase: Execution (default for implementation objectives)');
     return 'execution';
   }
 
   /**
    * Get a human-readable summary of the analysis
    */
-  public formatAnalysisSummary(analysis: TaskComplexityAnalysis): string {
+  public formatAnalysisSummary(analysis: ObjectiveComplexityAnalysis): string {
     const lines = [
-      `🎯 Task Complexity Analysis`,
+      `🎯 Objective Complexity Analysis`,
       ``
     ];
 

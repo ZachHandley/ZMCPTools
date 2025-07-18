@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { ulid } from 'ulidx';
 import { DatabaseManager } from '../database/index.js';
-import { AgentService, TaskService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
+import { AgentService, ObjectiveService, CommunicationService, KnowledgeGraphService } from '../services/index.js';
 import { PlanRepository } from '../repositories/index.js';
 import { WebScrapingService } from '../services/WebScrapingService.js';
 import { AgentMonitoringService } from '../services/AgentMonitoringService.js';
@@ -9,15 +10,15 @@ import { ProgressTracker } from '../services/ProgressTracker.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import { StructuredOrchestrator, type StructuredOrchestrationRequest } from '../services/index.js';
 import { DependencyWaitingService } from '../services/DependencyWaitingService.js';
-import { SequentialPlanningService, type PlanningRequest, type ExecutionPlan } from '../services/SequentialPlanningService.js';
-import type { TaskType, AgentStatus, MessageType, EntityType } from '../schemas/index.js';
+import { AgentPermissionManager } from '../utils/agentPermissions.js';
+import type { ObjectiveType, AgentStatus, MessageType, EntityType } from '../schemas/index.js';
 import type { McpTool } from '../schemas/tools/index.js';
 
 // Import centralized request schemas
 import {
   OrchestrationObjectiveSchema,
   SpawnAgentSchema,
-  CreateTaskSchema,
+  CreateObjectiveSchema,
   ListAgentsSchema,
   TerminateAgentSchema,
   MonitorAgentsSchema,
@@ -37,7 +38,7 @@ import {
 import {
   OrchestrationObjectiveResponseSchema,
   SpawnAgentResponseSchema,
-  CreateTaskResponseSchema,
+  CreateObjectiveResponseSchema,
   ListAgentsResponseSchema,
   TerminateAgentResponseSchema,
   MonitorAgentsResponseSchema,
@@ -56,16 +57,8 @@ import {
   ComprehensiveCleanupResponseSchema,
   GetCleanupConfigurationResponseSchema
 } from '../schemas/tools/cleanup.js';
+import type { ExecutionPlan } from '../schemas/tools/sequentialPlanning.js';
 
-// Import sequential planning tool schemas
-import {
-  SequentialPlanningSchema,
-  GetExecutionPlanSchema,
-  ExecuteWithPlanSchema,
-  SequentialPlanningResponseSchema,
-  GetExecutionPlanResponseSchema,
-  ExecuteWithPlanResponseSchema
-} from '../schemas/tools/sequentialPlanning.js';
 
 // Legacy types for backward compatibility
 export const OrchestrationResultSchema = z.object({
@@ -77,7 +70,7 @@ export const OrchestrationResultSchema = z.object({
 export const SpawnAgentOptionsSchema = z.object({
   agentType: z.string(),
   repositoryPath: z.string(),
-  taskDescription: z.string(),
+  objectiveDescription: z.string(),
   capabilities: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
   metadata: z.record(z.string(), z.any()).optional(),
@@ -88,7 +81,7 @@ export type SpawnAgentOptions = z.infer<typeof SpawnAgentOptionsSchema>;
 
 export class AgentOrchestrationTools {
   private agentService: AgentService;
-  private taskService: TaskService;
+  private objectiveService: ObjectiveService;
   private communicationService: CommunicationService;
   private knowledgeGraphService: KnowledgeGraphService;
   private planRepository: PlanRepository;
@@ -97,11 +90,12 @@ export class AgentOrchestrationTools {
   private progressTracker: ProgressTracker;
   private structuredOrchestrator: StructuredOrchestrator;
   private dependencyWaitingService: DependencyWaitingService;
-  private sequentialPlanningService: SequentialPlanningService;
+  private repositoryPath: string;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
+    this.repositoryPath = repositoryPath;
     this.agentService = new AgentService(db);
-    this.taskService = new TaskService(db);
+    this.objectiveService = new ObjectiveService(db);
     this.communicationService = new CommunicationService(db);
     this.planRepository = new PlanRepository(db);
     // Initialize KnowledgeGraphService with VectorSearchService
@@ -114,7 +108,6 @@ export class AgentOrchestrationTools {
     this.progressTracker = new ProgressTracker(db);
     this.structuredOrchestrator = new StructuredOrchestrator(db, repositoryPath);
     this.dependencyWaitingService = new DependencyWaitingService(db);
-    this.sequentialPlanningService = new SequentialPlanningService(db);
   }
 
   private async initializeKnowledgeGraphService(db: DatabaseManager): Promise<void> {
@@ -147,24 +140,24 @@ export class AgentOrchestrationTools {
       },
       {
         name: 'orchestrate_objective_structured',
-        description: 'Execute structured phased orchestration with intelligent model selection (Research → Plan → Execute → Monitor → Cleanup)',
+        description: 'Execute structured orchestration with research, planning, and execution phases',
         inputSchema: zodToJsonSchema(StructuredOrchestrationSchema),
         outputSchema: zodToJsonSchema(StructuredOrchestrationResponseSchema),
         handler: this.orchestrateObjectiveStructured.bind(this)
       },
       {
         name: 'spawn_agent',
-        description: 'Spawn fully autonomous Claude agent with complete tool access',
+        description: 'Create specialized Claude agent for specific objectives',
         inputSchema: zodToJsonSchema(SpawnAgentSchema),
         outputSchema: zodToJsonSchema(SpawnAgentResponseSchema),
         handler: this.spawnAgent.bind(this)
       },
       {
-        name: 'create_task',
-        description: 'Create and assign task to agents with enhanced capabilities',
-        inputSchema: zodToJsonSchema(CreateTaskSchema),
-        outputSchema: zodToJsonSchema(CreateTaskResponseSchema),
-        handler: this.createTask.bind(this)
+        name: 'create_objective',
+        description: 'Create development objective with requirements and dependencies',
+        inputSchema: zodToJsonSchema(CreateObjectiveSchema),
+        outputSchema: zodToJsonSchema(CreateObjectiveResponseSchema),
+        handler: this.createObjective.bind(this)
       },
       {
         name: 'list_agents',
@@ -182,14 +175,14 @@ export class AgentOrchestrationTools {
       },
       {
         name: 'monitor_agents',
-        description: 'Monitor agents with real-time updates using EventBus system',
+        description: 'Monitor agent status with real-time updates',
         inputSchema: zodToJsonSchema(MonitorAgentsSchema),
         outputSchema: zodToJsonSchema(MonitorAgentsResponseSchema),
         handler: this.monitorAgents.bind(this)
       },
       {
         name: 'continue_agent_session',
-        description: 'Continue an agent session using stored conversation session ID with additional instructions',
+        description: 'Resume agent session with additional instructions',
         inputSchema: zodToJsonSchema(ContinueAgentSessionSchema),
         outputSchema: zodToJsonSchema(ContinueAgentSessionResponseSchema),
         handler: this.continueAgentSession.bind(this)
@@ -221,27 +214,6 @@ export class AgentOrchestrationTools {
         inputSchema: zodToJsonSchema(GetCleanupConfigurationSchema),
         outputSchema: zodToJsonSchema(GetCleanupConfigurationResponseSchema),
         handler: this.getCleanupConfiguration.bind(this)
-      },
-      {
-        name: 'create_execution_plan',
-        description: 'Create comprehensive execution plan using sequential thinking before spawning agents',
-        inputSchema: zodToJsonSchema(SequentialPlanningSchema),
-        outputSchema: zodToJsonSchema(SequentialPlanningResponseSchema),
-        handler: this.createExecutionPlan.bind(this)
-      },
-      {
-        name: 'get_execution_plan',
-        description: 'Retrieve a previously created execution plan',
-        inputSchema: zodToJsonSchema(GetExecutionPlanSchema),
-        outputSchema: zodToJsonSchema(GetExecutionPlanResponseSchema),
-        handler: this.getExecutionPlan.bind(this)
-      },
-      {
-        name: 'execute_with_plan',
-        description: 'Execute an objective using a pre-created execution plan with well-defined agent tasks',
-        inputSchema: zodToJsonSchema(ExecuteWithPlanSchema),
-        outputSchema: zodToJsonSchema(ExecuteWithPlanResponseSchema),
-        handler: this.executeWithPlan.bind(this)
       }
     ];
   }
@@ -262,9 +234,12 @@ export class AgentOrchestrationTools {
     
     const { title, objective, repositoryPath, foundationSessionId } = normalizedArgs;
     try {
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
+      
       // 1. Create plan FIRST (before any other orchestration steps)
       const plan = await this.planRepository.createPlan({
-        repositoryPath,
+        repositoryPath: repoPath,
         title: `Plan: ${title}`,
         description: `Generated plan for orchestration objective: ${objective}`,
         objectives: objective,
@@ -281,11 +256,11 @@ export class AgentOrchestrationTools {
       });
 
       // 2. Create coordination room (orchestration always needs room)
-      const roomName = `objective_${Date.now()}`;
+      const roomName = AgentPermissionManager.generateOrchestrationRoomName(objective, 'obj');
       const room = await this.communicationService.createRoom({
         name: roomName,
         description: `Coordination room for: ${objective}`,
-        repositoryPath,
+        repositoryPath: repoPath,
         metadata: {
           objective,
           foundationSessionId,
@@ -295,10 +270,10 @@ export class AgentOrchestrationTools {
         }
       });
 
-      // 3. AUTO-CREATE MASTER TASK for the objective (linked to plan)
-      const masterTask = await this.taskService.createTask({
-        repositoryPath,
-        taskType: 'feature' as TaskType,
+      // 3. AUTO-CREATE MASTER OBJECTIVE for the objective (linked to plan)
+      const masterObjective = await this.objectiveService.createObjective({
+        repositoryPath: repoPath,
+        objectiveType: 'feature' as ObjectiveType,
         description: `${title}: ${objective}`,
         requirements: {
           objective,
@@ -306,21 +281,21 @@ export class AgentOrchestrationTools {
           roomName,
           planId: plan.id,
           foundationSessionId,
-          isOrchestrationTask: true,
+          isOrchestrationObjective: true,
           createdBy: 'orchestrateObjective'
         },
-        priority: 10 // High priority for orchestration tasks
+        priority: 10 // High priority for orchestration objectives
       });
 
-      // 4. Store objective in knowledge graph with task and plan references
+      // 4. Store objective in knowledge graph with objective and plan references
       try {
         await this.knowledgeGraphService.createEntity({
           id: `orchestration-${Date.now()}`,
-          repositoryPath,
+          repositoryPath: repoPath,
           entityType: 'insight',
           name: title,
-          description: `Objective: ${objective}\n\nMulti-agent objective coordination started.\nPlan: ${plan.id}\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}\nMaster Task: ${masterTask.id}`,
-          properties: { tags: ['objective', 'orchestration', 'coordination', 'task-creation', 'plan'] },
+          description: `Objective: ${objective}\n\nMulti-agent objective coordination started.\nPlan: ${plan.id}\nRoom: ${roomName}\nFoundation Session: ${foundationSessionId || 'none'}\nMaster Objective: ${masterObjective.id}`,
+          properties: { tags: ['objective', 'orchestration', 'coordination', 'objective-creation', 'plan'] },
           discoveredBy: 'system',
           discoveredDuring: 'orchestration',
           importanceScore: 0.9,
@@ -331,23 +306,24 @@ export class AgentOrchestrationTools {
         console.warn('Failed to store objective in knowledge graph:', error);
       }
 
-      // 4. Generate architect prompt with task-first approach
-      const architectPrompt = this.generateArchitectPrompt(objective, repositoryPath, roomName, foundationSessionId, masterTask.id);
+      // 4. Generate architect prompt with objective-first approach
+      const architectPrompt = this.generateArchitectPrompt(objective, repoPath, roomName, foundationSessionId, masterObjective.id);
 
-      // 5. Spawn architect agent with full autonomy, task assignment, and room
+      // 5. Spawn architect agent with full autonomy, objective assignment, and room
       const architectAgent = await this.agentService.createAgent({
         agentName: 'architect',
-        repositoryPath,
-        taskDescription: `Orchestrate objective: ${objective}`,
+        repositoryPath: repoPath,
+        objectiveDescription: `Orchestrate objective: ${objective}`,
         capabilities: ['ALL_TOOLS', 'orchestration', 'planning', 'coordination'],
         roomId: room.id, // Explicitly assign room for orchestration
+        autoCreateRoom: false, // Don't create another room - use the orchestration room
         metadata: {
           role: 'architect',
           objective,
           roomName,
           foundationSessionId,
           fullAutonomy: true,
-          assignedTaskId: masterTask.id
+          assignedObjectiveId: masterObjective.id
         },
         claudeConfig: {
           prompt: architectPrompt,
@@ -356,31 +332,31 @@ export class AgentOrchestrationTools {
             ORCHESTRATION_MODE: 'architect',
             TARGET_ROOM: roomName,
             OBJECTIVE: objective,
-            MASTER_TASK_ID: masterTask.id
+            MASTER_TASK_ID: masterObjective.id
           }
         }
       });
 
-      // 6. Assign master task to architect agent
-      await this.taskService.assignTask(masterTask.id, architectAgent.id);
+      // 6. Assign master objective to architect agent
+      await this.objectiveService.assignObjective(masterObjective.id, architectAgent.id);
 
-      // 7. Send welcome message to room with task info
+      // 7. Send welcome message to room with objective info
       this.communicationService.sendMessage({
         roomName,
         agentName: 'system',
-        message: `🏗️ Architect agent ${architectAgent.id} has been spawned to coordinate objective: "${objective}"\n📋 Master task ${masterTask.id} created and assigned`,
+        message: `🏗️ Architect agent ${architectAgent.id} has been spawned to coordinate objective: "${objective}"\n📋 Master objective ${masterObjective.id} created and assigned`,
         messageType: 'system' as MessageType
       });
 
       return {
         success: true,
-        message: 'Plan created and architect agent spawned successfully with master task',
+        message: 'Plan created and architect agent spawned successfully with master objective',
         data: {
           planId: plan.id,
           architectAgentId: architectAgent.id,
           roomName,
           objective,
-          masterTaskId: masterTask.id
+          masterObjectiveId: masterObjective.id
         }
       };
 
@@ -409,10 +385,13 @@ export class AgentOrchestrationTools {
     };
     
     try {
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = normalizedArgs.repositoryPath || this.repositoryPath;
+      
       const request: StructuredOrchestrationRequest = {
         title: normalizedArgs.title,
         objective: normalizedArgs.objective,
-        repositoryPath: normalizedArgs.repositoryPath,
+        repositoryPath: repoPath,
         foundationSessionId: normalizedArgs.foundationSessionId,
         maxDuration: normalizedArgs.maxDuration,
         enableProgressTracking: normalizedArgs.enableProgressTracking,
@@ -430,9 +409,9 @@ export class AgentOrchestrationTools {
           currentPhase: result.progress.currentPhase,
           progress: result.progress.progress,
           spawnedAgents: result.progress.spawnedAgents,
-          createdTasks: result.progress.createdTasks,
+          createdObjectives: result.progress.createdObjectives,
           roomName: result.progress.roomName,
-          masterTaskId: result.progress.masterTaskId,
+          masterObjectiveId: result.progress.masterObjectiveId,
           finalResults: result.finalResults,
           structuredMode: true
         }
@@ -458,7 +437,7 @@ export class AgentOrchestrationTools {
     const normalizedArgs = {
       agentType: args.agentType || args.agent_type,
       repositoryPath: args.repositoryPath || args.repository_path,
-      taskDescription: args.taskDescription || args.task_description,
+      objectiveDescription: args.objectiveDescription || args.objective_description,
       capabilities: args.capabilities,
       dependsOn: args.dependsOn || args.depends_on,
       metadata: args.metadata,
@@ -469,7 +448,7 @@ export class AgentOrchestrationTools {
     const options = {
       agentType: normalizedArgs.agentType,
       repositoryPath: normalizedArgs.repositoryPath,
-      taskDescription: normalizedArgs.taskDescription,
+      objectiveDescription: normalizedArgs.objectiveDescription,
       capabilities: normalizedArgs.capabilities,
       dependsOn: normalizedArgs.dependsOn,
       metadata: normalizedArgs.metadata,
@@ -483,9 +462,9 @@ export class AgentOrchestrationTools {
       logger.info('[SPAWN_AGENT] Called with options', {
         agentType: options.agentType,
         repositoryPath: options.repositoryPath,
-        taskDescriptionType: typeof options.taskDescription,
-        taskDescriptionLength: options.taskDescription?.length,
-        taskDescriptionPreview: options.taskDescription?.substring(0, 100),
+        objectiveDescriptionType: typeof options.objectiveDescription,
+        objectiveDescriptionLength: options.objectiveDescription?.length,
+        objectiveDescriptionPreview: options.objectiveDescription?.substring(0, 100),
         capabilitiesType: typeof options.capabilities,
         capabilitiesIsArray: Array.isArray(options.capabilities),
         capabilitiesValue: options.capabilities,
@@ -500,25 +479,28 @@ export class AgentOrchestrationTools {
       const {
         agentType,
         repositoryPath,
-        taskDescription,
+        objectiveDescription,
         capabilities = ['ALL_TOOLS'],
         dependsOn = [],
         metadata = {},
         autoCreateRoom,
         roomId
       } = options;
+      
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
 
       // 1. Wait for dependencies if any (REAL WAITING, NOT JUST CHECKING!)
       if (dependsOn.length > 0) {
         logger.info(`Agent has ${dependsOn.length} dependencies, waiting for completion...`, {
           agentType,
           dependsOn,
-          repositoryPath
+          repositoryPath: repoPath
         });
 
         const dependencyResult = await this.dependencyWaitingService.waitForAgentDependencies(
           dependsOn,
-          repositoryPath,
+          repoPath,
           {
             timeout: 600000, // 10 minutes
             waitForAnyFailure: true
@@ -553,13 +535,13 @@ export class AgentOrchestrationTools {
       }
 
       // 2. Generate specialized prompt
-      const specializedPrompt = this.generateAgentPrompt(agentType, taskDescription, repositoryPath);
+      const specializedPrompt = this.generateAgentPrompt(agentType, objectiveDescription, repoPath);
 
       // 3. Create agent with full capabilities
       const agent = await this.agentService.createAgent({
         agentName: agentType,
-        repositoryPath,
-        taskDescription,
+        repositoryPath: repoPath,
+        objectiveDescription: objectiveDescription,
         capabilities,
         dependsOn,
         metadata: {
@@ -578,10 +560,10 @@ export class AgentOrchestrationTools {
       try {
         await this.knowledgeGraphService.createEntity({
           id: `agent-spawn-${Date.now()}`,
-          repositoryPath,
-          entityType: 'task',
+          repositoryPath: repoPath,
+          entityType: 'objective',
           name: `Agent ${agentType} spawned`,
-          description: `Successfully spawned ${agentType} agent for task: ${taskDescription}`,
+          description: `Successfully spawned ${agentType} agent for objective: ${objectiveDescription}`,
           properties: {
             agentId: agent.id,
             agentType,
@@ -621,78 +603,81 @@ export class AgentOrchestrationTools {
   }
 
   /**
-   * Create and assign task to agents with enhanced capabilities
+   * Create and assign objective to agents with enhanced capabilities
    */
-  async createTask(args: any): Promise<OrchestrationResult> {
+  async createObjective(args: any): Promise<OrchestrationResult> {
     // Map snake_case to camelCase for compatibility
     const normalizedArgs = {
       repositoryPath: args.repositoryPath || args.repository_path,
-      taskType: args.taskType || args.task_type,
+      objectiveType: args.objectiveType || args.objective_type,
       title: args.title,
       description: args.description,
       requirements: args.requirements,
       dependencies: args.dependencies
     };
     
-    const { repositoryPath, taskType, title, description, requirements, dependencies } = normalizedArgs;
+    const { repositoryPath, objectiveType, title, description, requirements, dependencies } = normalizedArgs;
     try {
-      // Create the task with enhanced features
-      const task = await this.taskService.createTask({
-        repositoryPath,
-        taskType,
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
+      
+      // Create the objective with enhanced features
+      const objective = await this.objectiveService.createObjective({
+        repositoryPath: repoPath,
+        objectiveType,
         description: `${title}: ${description}`,
         requirements,
-        priority: requirements?.priority || 1,
+        priority: typeof requirements?.priority === 'number' ? requirements.priority : 1,
         estimatedDuration: requirements?.estimatedDuration,
-        tags: requirements?.tags || [taskType, 'orchestration']
+        tags: requirements?.tags || [objectiveType, 'orchestration']
       });
 
       // Add dependencies if specified
       if (dependencies && dependencies.length > 0) {
         for (const depId of dependencies) {
-          await this.taskService.addTaskDependency(task.id, depId);
+          await this.objectiveService.addObjectiveDependency(objective.id, depId);
         }
       }
 
       // Auto-assign if agent specified
       if (requirements?.assignedAgentId) {
-        await this.taskService.assignTask(task.id, requirements.assignedAgentId);
+        await this.objectiveService.assignObjective(objective.id, requirements.assignedAgentId);
       }
 
-      // Store task creation in knowledge graph with enhanced metadata
+      // Store objective creation in knowledge graph with enhanced metadata
       try {
         await this.knowledgeGraphService.createEntity({
-          id: `task-creation-${Date.now()}`,
+          id: `objective-creation-${Date.now()}`,
           repositoryPath,
-          entityType: 'task',
-          name: `Task created: ${title}`,
-          description: `Task ${task.id} created with type ${taskType}.\nDescription: ${description}\nPriority: ${task.priority}\nEstimated Duration: ${requirements?.estimatedDuration || 'N/A'} minutes`,
+          entityType: 'objective',
+          name: `Objective created: ${title}`,
+          description: `Objective ${objective.id} created with type ${objectiveType}.\nDescription: ${description}\nPriority: ${objective.priority}\nEstimated Duration: ${requirements?.estimatedDuration || 'N/A'} minutes`,
           properties: {
-            taskId: task.id,
-            taskType,
+            objectiveId: objective.id,
+            objectiveType,
             dependencies: dependencies || [],
-            priority: task.priority,
+            priority: objective.priority,
             estimatedDuration: requirements?.estimatedDuration,
-            tags: ['task-creation', taskType, 'orchestration', ...(requirements?.tags || [])]
+            tags: ['objective-creation', objectiveType, 'orchestration', ...(requirements?.tags || [])]
           },
           discoveredBy: 'system',
-          discoveredDuring: 'task-creation',
+          discoveredDuring: 'objective-creation',
           importanceScore: 0.8,
           confidenceScore: 1.0,
           relevanceScore: 0.8
         });
       } catch (error) {
-        console.warn('Failed to store task creation in knowledge graph:', error);
+        console.warn('Failed to store objective creation in knowledge graph:', error);
       }
 
       return {
         success: true,
-        message: 'Task created successfully with enhanced tracking',
+        message: 'Objective created successfully with enhanced tracking',
         data: {
-          taskId: task.id,
-          taskType,
-          status: task.status,
-          priority: task.priority,
+          objectiveId: objective.id,
+          objectiveType,
+          status: objective.status,
+          priority: objective.priority,
           estimatedDuration: requirements?.estimatedDuration,
           dependencies: dependencies || []
         }
@@ -701,7 +686,7 @@ export class AgentOrchestrationTools {
     } catch (error) {
       return {
         success: false,
-        message: `Failed to create task: ${error}`,
+        message: `Failed to create objective: ${error}`,
         data: { error: String(error) }
       };
     }
@@ -723,7 +708,9 @@ export class AgentOrchestrationTools {
     
     const { repositoryPath, status, limit, offset } = normalizedArgs;
     try {
-      const agents = await this.agentService.listAgents(repositoryPath, status, limit, offset);
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
+      const agents = await this.agentService.listAgents(repoPath, status, limit, offset);
 
       return {
         success: true,
@@ -812,7 +799,7 @@ export class AgentOrchestrationTools {
     repositoryPath: string,
     roomName: string,
     foundationSessionId?: string,
-    masterTaskId?: string
+    masterObjectiveId?: string
   ): string {
     return `🏗️ ARCHITECT AGENT - Strategic Orchestration Leader with Sequential Thinking
 
@@ -820,7 +807,7 @@ OBJECTIVE: ${objective}
 REPOSITORY: ${repositoryPath}
 COORDINATION ROOM: ${roomName}
 FOUNDATION SESSION: ${foundationSessionId || 'none'}
-MASTER TASK: ${masterTaskId || 'none'}
+MASTER OBJECTIVE: ${masterObjectiveId || 'none'}
 
 You are an autonomous architect agent with COMPLETE CLAUDE CODE CAPABILITIES and advanced sequential thinking for complex planning.
 You can use ALL tools: file operations, web browsing, code analysis, agent spawning, etc.
@@ -832,7 +819,7 @@ Use this tool systematically throughout your orchestration process:
 1. **Initial Analysis**: Use sequential_thinking() to understand objective scope and complexity
 2. **Problem Decomposition**: Break down the objective into logical components systematically
 3. **Dependency Analysis**: Identify relationships and dependencies between components
-4. **Agent Planning**: Determine optimal agent types and task assignments
+4. **Agent Planning**: Determine optimal agent types and objective assignments
 5. **Risk Assessment**: Consider potential challenges and mitigation strategies
 6. **Execution Strategy**: Plan coordination and monitoring approach
 7. **Iterative Refinement**: Revise and improve your approach as understanding deepens
@@ -841,22 +828,22 @@ Use this tool systematically throughout your orchestration process:
 You also have access to structured planning tools for comprehensive orchestration:
 - create_execution_plan() - Create detailed execution plan using sequential thinking
 - get_execution_plan() - Retrieve previously created execution plans
-- execute_with_plan() - Execute objectives using pre-created plans with well-defined agent tasks
+- execute_with_plan() - Execute objectives using pre-created plans with well-defined agent objectives
 
 RECOMMENDED WORKFLOW:
 1. Start with sequential_thinking() for initial analysis
 2. Use create_execution_plan() to create comprehensive structured plan
-3. Use execute_with_plan() to spawn agents with clear, specific tasks
+3. Use execute_with_plan() to spawn agents with clear, specific objectives
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before planning, always search for relevant knowledge and patterns:
 - search_knowledge_graph() to learn from previous similar objectives
-- Look for patterns in agent coordination, task breakdown, and execution strategies
+- Look for patterns in agent coordination, objective breakdown, and execution strategies
 - Identify reusable components and successful approaches from past work
 - Use knowledge graph insights to inform your sequential thinking process
 
-🎯 TASK-FIRST ORCHESTRATION APPROACH:
-Your orchestration centers around hierarchical task management. You have been assigned master task ${masterTaskId || 'TBD'}.
+🎯 OBJECTIVE-FIRST ORCHESTRATION APPROACH:
+Your orchestration centers around hierarchical objective management. You have been assigned master objective ${masterObjectiveId || 'TBD'}.
 
 ORCHESTRATION PHASES:
 
@@ -876,17 +863,17 @@ ORCHESTRATION PHASES:
    - Analyze repository structure thoroughly
    - Identify reusable components and successful approaches
    
-3. **STRUCTURED TASK BREAKDOWN WITH SEQUENTIAL THINKING**
-   REQUIRED: Use sequential_thinking() for task decomposition:
+3. **STRUCTURED OBJECTIVE BREAKDOWN WITH SEQUENTIAL THINKING**
+   REQUIRED: Use sequential_thinking() for objective decomposition:
    - Analyze objective components systematically
-   - Create hierarchical task structure with dependencies
+   - Create hierarchical objective structure with dependencies
    - Define agent specialization requirements
    - Plan execution sequencing and coordination
    - Store complete plan in knowledge graph: store_knowledge_memory()
    
 4. **COORDINATED AGENT EXECUTION**
-   - spawn_agent() specialist agents with specific task assignments
-   - Create sub-tasks using create_task() for complex work
+   - spawn_agent() specialist agents with specific objective assignments
+   - Create sub-objectives using create_objective() for complex work
    - Monitor progress through room messages: wait_for_messages()
    - Handle conflicts and dependencies proactively
    - Ensure quality gates and completion criteria
@@ -895,18 +882,18 @@ ORCHESTRATION PHASES:
    - Monitor agent progress and identify bottlenecks
    - Use sequential_thinking() for problem-solving when issues arise
    - Adapt coordination strategy based on real-time feedback
-   - Create additional tasks or agents as needed
+   - Create additional objectives or agents as needed
    
 6. **COMPLETION & KNOWLEDGE CAPTURE**
-   - Verify all tasks completed successfully
-   - Update master task status
+   - Verify all objectives completed successfully
+   - Update master objective status
    - Document learnings and patterns in shared memory
    - Provide comprehensive final status report
 
 AVAILABLE ORCHESTRATION TOOLS:
 - sequential_thinking() - Step-by-step problem decomposition and planning
-- create_task() - Create sub-tasks with dependencies and requirements
-- spawn_agent() - Create specialized agents (they'll be prompted to use task tools)
+- create_objective() - Create sub-objectives with dependencies and requirements
+- spawn_agent() - Create specialized agents (they'll be prompted to use objective tools)
 - join_room() - Join coordination rooms
 - send_message() - Communicate with agents
 - wait_for_messages() - Monitor conversations
@@ -916,7 +903,7 @@ AVAILABLE ORCHESTRATION TOOLS:
 
 CRITICAL SEQUENTIAL THINKING USAGE:
 - ALWAYS start with sequential_thinking() for initial objective analysis
-- Use sequential_thinking() for complex task decomposition
+- Use sequential_thinking() for complex objective decomposition
 - Apply sequential thinking when encountering problems or roadblocks
 - Use iterative thinking to refine and improve your approach
 - Consider alternative paths and risk mitigation systematically
@@ -929,18 +916,18 @@ CRITICAL KNOWLEDGE GRAPH INTEGRATION:
 - Store new insights and patterns for future orchestration
 - Build upon successful coordination strategies from past work
 
-CRITICAL TASK MANAGEMENT:
-- Always use create_task() to break down work into manageable pieces
-- Create hierarchical task structures with clear dependencies
-- Assign tasks to agents when spawning them
-- Monitor task completion and update statuses regularly
-- Use task dependencies to coordinate agent work effectively
+CRITICAL OBJECTIVE MANAGEMENT:
+- Always use create_objective() to break down work into manageable pieces
+- Create hierarchical objective structures with clear dependencies
+- Assign objectives to agents when spawning them
+- Monitor objective completion and update statuses regularly
+- Use objective dependencies to coordinate agent work effectively
 
 ORCHESTRATION BEST PRACTICES:
 1. Begin with sequential_thinking() to understand the objective thoroughly
 2. Search knowledge graph for relevant patterns and successful approaches
-3. Create a structured task breakdown with clear dependencies
-4. Spawn specialized agents with specific, well-defined tasks
+3. Create a structured objective breakdown with clear dependencies
+4. Spawn specialized agents with specific, well-defined objectives
 5. Monitor progress continuously and adapt strategy as needed
 6. Document learnings and patterns for future orchestration
 
@@ -948,10 +935,10 @@ CRITICAL: You have COMPLETE autonomy with advanced sequential thinking capabilit
 Start immediately with sequential_thinking() to analyze the objective complexity and develop your orchestration strategy.`;
   }
 
-  private generateAgentPrompt(agentType: string, taskDescription: string, repositoryPath: string): string {
+  private generateAgentPrompt(agentType: string, objectiveDescription: string, repositoryPath: string): string {
     const basePrompt = `You are a fully autonomous ${agentType} agent with COMPLETE CLAUDE CODE CAPABILITIES and advanced sequential thinking.
 
-TASK: ${taskDescription}
+OBJECTIVE: ${objectiveDescription}
 REPOSITORY: ${repositoryPath}
 
 You have access to ALL tools:
@@ -963,7 +950,7 @@ You have access to ALL tools:
 - Database queries
 - Agent coordination tools (spawn_agent, join_room, send_message, etc.)
 - Knowledge graph and communication (store_knowledge_memory, search_knowledge_graph, etc.)
-- Task management tools (create_task, list_tasks, update_task, etc.)
+- Objective management tools (create_objective, list_objectives, update_objective, etc.)
 - Sequential thinking tool (sequential_thinking) for complex problem solving
 
 🧠 SEQUENTIAL THINKING METHODOLOGY:
@@ -979,21 +966,21 @@ Use this tool systematically for complex challenges:
 
 🎯 KNOWLEDGE GRAPH INTEGRATION:
 Before starting work, search for relevant knowledge and patterns:
-- search_knowledge_graph() to learn from previous similar tasks
+- search_knowledge_graph() to learn from previous similar objectives
 - Look for patterns in successful implementations
 - Identify reusable components and established approaches
 - Use knowledge graph insights to inform your sequential thinking process
 
-🎯 TASK-DRIVEN OPERATION:
-- You are expected to work in a task-driven manner
+🎯 OBJECTIVE-DRIVEN OPERATION:
+- You are expected to work in an objective-driven manner
 - Use sequential_thinking() for complex problem analysis
-- Use create_task() to break down complex work into manageable pieces
-- Create sub-tasks when your assigned work is complex
-- Update task progress regularly and report completion
-- Use task dependencies to coordinate with other agents
+- Use create_objective() to break down complex work into manageable pieces
+- Create sub-objectives when your assigned work is complex
+- Update objective progress regularly and report completion
+- Use objective dependencies to coordinate with other agents
 
 AUTONOMOUS OPERATION GUIDELINES:
-- Work independently to complete your assigned task
+- Work independently to complete your assigned objective
 - Use sequential_thinking() for complex problem solving
 - Use any tools necessary for success
 - Search knowledge graph before implementing to leverage previous work
@@ -1004,7 +991,7 @@ AUTONOMOUS OPERATION GUIDELINES:
 
 COORDINATION TOOLS AVAILABLE:
 - sequential_thinking() - Step-by-step problem decomposition
-- create_task() - Break down complex work into sub-tasks
+- create_objective() - Break down complex work into sub-objectives
 - join_room() - Join project coordination rooms
 - send_message() - Communicate with other agents
 - store_knowledge_memory() - Share knowledge, insights, and patterns
@@ -1021,26 +1008,26 @@ CRITICAL SEQUENTIAL THINKING USAGE:
 
 CRITICAL KNOWLEDGE GRAPH INTEGRATION:
 - Search memory before implementing to leverage previous experiences
-- Look for patterns in similar tasks and successful approaches
+- Look for patterns in similar objectives and successful approaches
 - Use knowledge graph insights to inform your sequential thinking
-- Store new insights and patterns for future tasks
+- Store new insights and patterns for future objectives
 - Build upon successful implementation strategies from past work
 
-CRITICAL TASK MANAGEMENT:
-- Always assess if your work needs to be broken into sub-tasks
-- Create sub-tasks for complex implementations
+CRITICAL OBJECTIVE MANAGEMENT:
+- Always assess if your work needs to be broken into sub-objectives
+- Create sub-objectives for complex implementations
 - Report progress and completion status
-- Use task dependencies to coordinate sequencing with other agents
+- Use objective dependencies to coordinate sequencing with other agents
 
 IMPLEMENTATION BEST PRACTICES:
-1. Begin with sequential_thinking() to understand the task thoroughly
+1. Begin with sequential_thinking() to understand the objective thoroughly
 2. Search knowledge graph for relevant patterns and successful approaches
 3. Create a structured implementation plan with clear steps
 4. Execute systematically with continuous validation
-5. Document learnings and patterns for future tasks
+5. Document learnings and patterns for future objectives
 
 CRITICAL: You are fully autonomous with advanced sequential thinking capabilities.
-Start with sequential_thinking() to analyze your task and develop your implementation strategy.`;
+Start with sequential_thinking() to analyze your objective and develop your implementation strategy.`;
 
     // Add role-specific instructions
     const roleInstructions = this.getRoleInstructions(agentType);
@@ -1113,7 +1100,7 @@ RESEARCH AGENT SPECIALIZATION:
     return instructions[agentType] || `
 
 SPECIALIST AGENT:
-- Apply your expertise to the specific task
+- Apply your expertise to the specific objective
 - Follow best practices in your domain
 - Collaborate effectively with other agents
 - Deliver high-quality results
@@ -1145,19 +1132,19 @@ SPECIALIST AGENT:
 
 
   /**
-   * Get task analytics and insights
+   * Get objective analytics and insights
    */
-  async getTaskAnalytics(repositoryPath: string): Promise<OrchestrationResult> {
+  async getObjectiveAnalytics(repositoryPath: string): Promise<OrchestrationResult> {
     try {
-      const analytics = await this.taskService.getTaskAnalytics(repositoryPath);
+      const analytics = await this.objectiveService.getObjectiveAnalytics(repositoryPath);
       
       return {
         success: true,
-        message: `Task analytics retrieved for ${repositoryPath}`,
+        message: `Objective analytics retrieved for ${repositoryPath}`,
         data: {
           analytics,
           summary: {
-            totalTasks: analytics.totalTasks,
+            totalObjectives: analytics.totalObjectives,
             completionRate: `${analytics.completionRate.toFixed(1)}%`,
             averageTime: `${analytics.averageCompletionTime.toFixed(1)} minutes`,
             topBottleneck: 'None identified',
@@ -1169,37 +1156,37 @@ SPECIALIST AGENT:
     } catch (error) {
       return {
         success: false,
-        message: `Failed to get task analytics: ${error}`,
+        message: `Failed to get objective analytics: ${error}`,
         data: { error: String(error) }
       };
     }
   }
 
   /**
-   * Get task hierarchy and progress
+   * Get objective hierarchy and progress
    */
-  async getTaskHierarchy(taskId: string): Promise<OrchestrationResult> {
+  async getObjectiveHierarchy(objectiveId: string): Promise<OrchestrationResult> {
     try {
-      const hierarchy = await this.taskService.getTaskHierarchy(taskId);
+      const hierarchy = await this.objectiveService.getObjectiveHierarchy(objectiveId);
       
       if (!hierarchy) {
         return {
           success: false,
-          message: `Task ${taskId} not found`,
-          data: { taskId }
+          message: `Objective ${objectiveId} not found`,
+          data: { objectiveId }
         };
       }
       
       return {
         success: true,
-        message: `Task hierarchy retrieved for ${taskId}`,
+        message: `Objective hierarchy retrieved for ${objectiveId}`,
         data: {
           hierarchy,
           summary: {
-            rootTasks: hierarchy.rootTasks.length,
-            totalSubtasks: Object.keys(hierarchy.taskTree).length,
-            orphanTasks: hierarchy.orphanTasks.length,
-            treeDepth: Math.max(...Object.values(hierarchy.taskTree).map(tasks => tasks.length))
+            rootObjectives: hierarchy.rootObjectives.length,
+            totalSubobjectives: Object.keys(hierarchy.objectiveTree).length,
+            orphanObjectives: hierarchy.orphanObjectives.length,
+            treeDepth: Math.max(...Object.values(hierarchy.objectiveTree).map(objectives => objectives.length))
           }
         }
       };
@@ -1207,17 +1194,17 @@ SPECIALIST AGENT:
     } catch (error) {
       return {
         success: false,
-        message: `Failed to get task hierarchy: ${error}`,
+        message: `Failed to get objective hierarchy: ${error}`,
         data: { error: String(error) }
       };
     }
   }
 
   /**
-   * Update task progress with enhanced tracking
+   * Update objective progress with enhanced tracking
    */
-  async updateTaskProgress(
-    taskId: string,
+  async updateObjectiveProgress(
+    objectiveId: string,
     progress: {
       status?: 'pending' | 'in_progress' | 'completed' | 'failed';
       progressPercentage?: number;
@@ -1226,7 +1213,7 @@ SPECIALIST AGENT:
     }
   ): Promise<OrchestrationResult> {
     try {
-      await this.taskService.updateTask(taskId, {
+      await this.objectiveService.updateObjective(objectiveId, {
         status: progress.status,
         progressPercentage: progress.progressPercentage,
         notes: progress.notes,
@@ -1235,9 +1222,9 @@ SPECIALIST AGENT:
       
       return {
         success: true,
-        message: `Task ${taskId} updated successfully`,
+        message: `Objective ${objectiveId} updated successfully`,
         data: {
-          taskId,
+          objectiveId,
           progress: {
             status: progress.status,
             progressPercentage: progress.progressPercentage,
@@ -1250,22 +1237,22 @@ SPECIALIST AGENT:
     } catch (error) {
       return {
         success: false,
-        message: `Failed to update task progress: ${error}`,
+        message: `Failed to update objective progress: ${error}`,
         data: { error: String(error) }
       };
     }
   }
 
   /**
-   * Get task execution plan with critical path analysis
+   * Get objective execution plan with critical path analysis
    */
-  async getTaskExecutionPlan(repositoryPath: string): Promise<OrchestrationResult> {
+  async getObjectiveExecutionPlan(repositoryPath: string): Promise<OrchestrationResult> {
     try {
-      // Get all tasks for this repository
-      const allTasks = await this.taskService.getTasksByRepository(repositoryPath);
-      const taskIds = allTasks.map(task => task.id);
+      // Get all objectives for this repository
+      const allObjectives = await this.objectiveService.getObjectivesByRepository(repositoryPath);
+      const objectiveIds = allObjectives.map(objective => objective.id);
       
-      const plan = await this.taskService.createExecutionPlan(taskIds);
+      const plan = await this.objectiveService.createExecutionPlan(objectiveIds);
       
       return {
         success: true,
@@ -1273,7 +1260,7 @@ SPECIALIST AGENT:
         data: {
           plan,
           summary: {
-            totalTasks: plan.tasks.length,
+            totalObjectives: plan.objectives.length,
             estimatedDuration: `${plan.estimatedDuration} minutes`,
             criticalPathLength: plan.criticalPath.length,
             riskLevel: plan.riskAssessment.confidenceLevel > 0.8 ? 'Low' : 
@@ -1293,78 +1280,78 @@ SPECIALIST AGENT:
   }
 
   /**
-   * Break down a complex task into subtasks
+   * Break down a complex objective into subobjectives
    */
-  async breakdownTask(
-    taskId: string,
-    subtasks: Array<{
+  async breakdownObjective(
+    objectiveId: string,
+    subobjectives: Array<{
       title: string;
       description: string;
-      taskType: TaskType;
+      objectiveType: ObjectiveType;
       estimatedDuration?: number;
       priority?: number;
       dependencies?: string[];
     }>
   ): Promise<OrchestrationResult> {
     try {
-      const task = await this.taskService.getTask(taskId);
-      if (!task) {
+      const objective = await this.objectiveService.getObjective(objectiveId);
+      if (!objective) {
         return {
           success: false,
-          message: `Task ${taskId} not found`,
-          data: { taskId }
+          message: `Objective ${objectiveId} not found`,
+          data: { objectiveId }
         };
       }
 
-      const createdSubtasks = await this.taskService.breakdownTask(
-        taskId,
-        subtasks.map(subtask => ({
-          description: `${subtask.title}: ${subtask.description}`,
-          taskType: subtask.taskType,
+      const createdSubobjectives = await this.objectiveService.breakdownObjective(
+        objectiveId,
+        subobjectives.map(subobjective => ({
+          description: `${subobjective.title}: ${subobjective.description}`,
+          objectiveType: subobjective.objectiveType,
           requirements: {
-            estimatedDuration: subtask.estimatedDuration,
-            priority: subtask.priority,
-            tags: ['subtask', subtask.taskType]
+            estimatedDuration: subobjective.estimatedDuration,
+            priority: subobjective.priority,
+            tags: ['subobjective', subobjective.objectiveType]
           },
-          dependencies: subtask.dependencies || []
+          dependencies: subobjective.dependencies || []
         }))
       );
 
-      // Store task breakdown in knowledge graph with enhanced metadata
+      // Store objective breakdown in knowledge graph with enhanced metadata
       try {
         await this.knowledgeGraphService.createEntity({
-          id: `task-breakdown-${Date.now()}`,
-          repositoryPath: task.repositoryPath,
-          entityType: 'task',
-          name: `Task breakdown: ${task.description}`,
-          description: `Task ${taskId} broken down into ${createdSubtasks.length} subtasks`,
+          id: `objective-breakdown-${Date.now()}`,
+          repositoryPath: objective.repositoryPath,
+          entityType: 'objective',
+          name: `Objective breakdown: ${objective.description}`,
+          description: `Objective ${objectiveId} broken down into ${createdSubobjectives.length} subobjectives`,
           properties: {
-            parentTaskId: taskId,
-            subtaskIds: createdSubtasks.map(t => t.id),
-            subtaskCount: createdSubtasks.length,
-            tags: ['task-breakdown', 'orchestration']
+            parentObjectiveId: objectiveId,
+            subobjectiveIds: createdSubobjectives.map(o => o.id),
+            subobjectiveCount: createdSubobjectives.length,
+            tags: ['objective-breakdown', 'orchestration']
           },
           discoveredBy: 'system',
-          discoveredDuring: 'task-breakdown',
+          discoveredDuring: 'objective-breakdown',
           importanceScore: 0.8,
           confidenceScore: 1.0,
           relevanceScore: 0.8
         });
       } catch (error) {
-        console.warn('Failed to store task breakdown in knowledge graph:', error);
+        console.warn('Failed to store objective breakdown in knowledge graph:', error);
       }
 
       return {
         success: true,
-        message: `Task ${taskId} broken down into ${createdSubtasks.length} subtasks`,
+        message: `Objective ${objectiveId} broken down into ${createdSubobjectives.length} subobjectives`,
         data: {
-          parentTaskId: taskId,
-          subtasks: createdSubtasks.map(subtask => ({
-            id: subtask.id,
-            description: subtask.description,
-            taskType: subtask.taskType,
-            priority: subtask.priority,
-            estimatedDuration: subtask.requirements?.estimatedDuration
+          parentObjectiveId: objectiveId,
+          subobjectives: createdSubobjectives.map(subobjective => ({
+            id: subobjective.id,
+            description: subobjective.description,
+            objectiveType: subobjective.objectiveType,
+            priority: subobjective.priority,
+            estimatedDuration: subobjective.requirements?.estimatedDuration
           }))
         }
       };
@@ -1372,16 +1359,16 @@ SPECIALIST AGENT:
     } catch (error) {
       return {
         success: false,
-        message: `Failed to breakdown task: ${error}`,
+        message: `Failed to breakdown objective: ${error}`,
         data: { error: String(error) }
       };
     }
   }
 
   /**
-   * Auto-assign tasks to available agents based on capabilities
+   * Auto-assign objectives to available agents based on capabilities
    */
-  async autoAssignTasks(repositoryPath: string): Promise<OrchestrationResult> {
+  async autoAssignObjectives(repositoryPath: string): Promise<OrchestrationResult> {
     try {
       // Get available agents first
       const agents = await this.agentService.listAgents(repositoryPath, 'active');
@@ -1390,7 +1377,7 @@ SPECIALIST AGENT:
       let assignments: any[] = [];
       if (availableAgents.length > 0) {
         // Use the first available agent for simplicity
-        assignments = await this.taskService.autoAssignTasks(repositoryPath, availableAgents[0].id);
+        assignments = await this.objectiveService.autoAssignObjectives(repositoryPath, availableAgents[0].id);
       }
       
       // Store assignment results in knowledge graph
@@ -1398,12 +1385,12 @@ SPECIALIST AGENT:
         await this.knowledgeGraphService.createEntity({
           id: `auto-assignment-${Date.now()}`,
           repositoryPath,
-          entityType: 'task',
+          entityType: 'objective',
           name: 'Auto-assignment completed',
-          description: `${assignments.length} tasks automatically assigned to agents`,
+          description: `${assignments.length} objectives automatically assigned to agents`,
           properties: {
             assignmentCount: assignments.length,
-            assignments: assignments.map(a => ({ taskId: a.id, agentId: a.assignedAgentId })),
+            assignments: assignments.map(a => ({ objectiveId: a.id, agentId: a.assignedAgentId })),
             tags: ['auto-assignment', 'orchestration']
           },
           discoveredBy: 'system',
@@ -1418,11 +1405,11 @@ SPECIALIST AGENT:
 
       return {
         success: true,
-        message: `${assignments.length} tasks auto-assigned successfully`,
+        message: `${assignments.length} objectives auto-assigned successfully`,
         data: {
           assignmentCount: assignments.length,
           assignments: assignments.map(assignment => ({
-            taskId: assignment.id,
+            objectiveId: assignment.id,
             agentId: assignment.assignedAgentId
           }))
         }
@@ -1431,47 +1418,47 @@ SPECIALIST AGENT:
     } catch (error) {
       return {
         success: false,
-        message: `Failed to auto-assign tasks: ${error}`,
+        message: `Failed to auto-assign objectives: ${error}`,
         data: { error: String(error) }
       };
     }
   }
 
   /**
-   * Get comprehensive task insights for better orchestration
+   * Get comprehensive objective insights for better orchestration
    */
-  async getTaskInsights(repositoryPath: string): Promise<OrchestrationResult> {
+  async getObjectiveInsights(repositoryPath: string): Promise<OrchestrationResult> {
     try {
-      const [analytics, pendingTasks, inProgressTasks] = await Promise.all([
-        this.taskService.getTaskAnalytics(repositoryPath),
-        this.taskService.getPendingTasks(repositoryPath),
-        this.taskService.listTasks(repositoryPath, { status: 'in_progress' })
+      const [analytics, pendingObjectives, inProgressObjectives] = await Promise.all([
+        this.objectiveService.getObjectiveAnalytics(repositoryPath),
+        this.objectiveService.getPendingObjectives(repositoryPath),
+        this.objectiveService.listObjectives(repositoryPath, { status: 'in_progress' })
       ]);
 
       const insights = {
         analytics,
         currentState: {
-          pendingTasks: pendingTasks.length,
-          inProgressTasks: inProgressTasks.length,
-          unassignedTasks: pendingTasks.filter(t => !t.assignedAgentId).length,
-          blockedTasks: 0 // TODO: Calculate blocked tasks
+          pendingObjectives: pendingObjectives.length,
+          inProgressObjectives: inProgressObjectives.length,
+          unassignedObjectives: pendingObjectives.filter(o => !o.assignedAgentId).length,
+          blockedObjectives: 0 // TODO: Calculate blocked objectives
         },
         recommendations: [
-          pendingTasks.length > 5 ? 'Consider spawning additional agents for pending tasks' : null,
-          inProgressTasks.length > 10 ? 'Monitor in-progress tasks for potential bottlenecks' : null
+          pendingObjectives.length > 5 ? 'Consider spawning additional agents for pending objectives' : null,
+          inProgressObjectives.length > 10 ? 'Monitor in-progress objectives for potential bottlenecks' : null
         ].filter(Boolean) as string[]
       };
 
       return {
         success: true,
-        message: `Task insights generated for ${repositoryPath}`,
+        message: `Objective insights generated for ${repositoryPath}`,
         data: insights
       };
 
     } catch (error) {
       return {
         success: false,
-        message: `Failed to get task insights: ${error}`,
+        message: `Failed to get objective insights: ${error}`,
         data: { error: String(error) }
       };
     }
@@ -1506,7 +1493,8 @@ SPECIALIST AGENT:
       progressContext
     } = normalizedArgs;
     try {
-      const resolvedPath = repositoryPath || process.cwd();
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
       const startTime = Date.now();
       const errors: string[] = [];
       const eventSubscriptions: string[] = [];
@@ -1518,7 +1506,7 @@ SPECIALIST AGENT:
       const progressContextConfig = {
         contextId: agentId || orchestrationId || roomName || 'monitoring',
         contextType: agentId ? 'agent' as const : orchestrationId ? 'orchestration' as const : roomName ? 'monitoring' as const : 'monitoring' as const,
-        repositoryPath: resolvedPath,
+        repositoryPath: repoPath,
         metadata: {
           monitoringMode,
           detailLevel,
@@ -1552,8 +1540,8 @@ SPECIALIST AGENT:
         if (agentId) {
           initialStatus = await this.monitoringService.getAgentStatus(agentId);
           await sendProgressUpdate(10, `Agent ${agentId}: ${initialStatus.status}`);
-          if (initialStatus.currentTask) {
-            await sendProgressUpdate(12, `  Current task: ${initialStatus.currentTask.description}`);
+          if (initialStatus.currentObjective) {
+            await sendProgressUpdate(12, `  Current objective: ${initialStatus.currentObjective.description}`);
           }
           await sendProgressUpdate(15, `  Uptime: ${Math.floor(initialStatus.uptime/60)}m ${Math.floor(initialStatus.uptime%60)}s`);
         } else if (orchestrationId) {
@@ -1561,15 +1549,15 @@ SPECIALIST AGENT:
           await sendProgressUpdate(10, `Orchestration ${orchestrationId}: ${initialStatus.status}`);
           await sendProgressUpdate(12, `  Progress: ${initialStatus.progress.toFixed(1)}%`);
           await sendProgressUpdate(13, `  Active agents: ${initialStatus.activeAgents.length}`);
-          await sendProgressUpdate(15, `  Completed tasks: ${initialStatus.completedTasks.length}/${initialStatus.totalTasks}`);
+          await sendProgressUpdate(15, `  Completed objectives: ${initialStatus.completedObjectives.length}/${initialStatus.totalObjectives}`);
         } else if (roomName) {
           initialStatus = await this.monitoringService.getRoomActivity(roomName);
           await sendProgressUpdate(10, `Room ${roomName}: ${initialStatus.coordinationStatus}`);
           await sendProgressUpdate(12, `  Active members: ${initialStatus.activeMembers.length}`);
           await sendProgressUpdate(15, `  Messages: ${initialStatus.messageCount}`);
         } else {
-          initialStatus = await this.monitoringService.getActiveAgents(resolvedPath);
-          await sendProgressUpdate(10, `Repository ${resolvedPath}: ${initialStatus.length} active agents`);
+          initialStatus = await this.monitoringService.getActiveAgents(repoPath);
+          await sendProgressUpdate(10, `Repository ${repoPath}: ${initialStatus.length} active agents`);
           for (const agent of initialStatus) {
             await sendProgressUpdate(15, `  Agent ${agent.agentId}: ${agent.status}`);
           }
@@ -1586,7 +1574,7 @@ SPECIALIST AGENT:
           // Subscribe to agent status changes
           const agentStatusSub = eventBus.subscribe('agent_status_change', async (data) => {
             if (agentId && data.agentId !== agentId) return;
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
@@ -1597,23 +1585,23 @@ SPECIALIST AGENT:
                 await sendProgressUpdate(currentProgress, `  Metadata: ${JSON.stringify(data.metadata)}`);
               }
             }
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(agentStatusSub);
 
           // Subscribe to agent spawn events
           const agentSpawnSub = eventBus.subscribe('agent_spawned', async (data) => {
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
             await sendProgressUpdate(currentProgress, `[${timestamp}] 🆕 Agent spawned: ${data.agent.id} (${data.agent.agentName})`);
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(agentSpawnSub);
 
           // Subscribe to agent termination events
           const agentTermSub = eventBus.subscribe('agent_terminated', async (data) => {
             if (agentId && data.agentId !== agentId) return;
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
@@ -1622,18 +1610,18 @@ SPECIALIST AGENT:
             if (data.reason && (detailLevel === 'detailed' || detailLevel === 'verbose')) {
               await sendProgressUpdate(currentProgress, `  Reason: ${data.reason}`);
             }
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(agentTermSub);
         }
 
         if (monitoringMode === 'activity' || monitoringMode === 'full') {
-          // Subscribe to task updates
-          const taskUpdateSub = eventBus.subscribe('task_update', async (data) => {
-            if (data.repositoryPath !== resolvedPath) return;
+          // Subscribe to objective updates
+          const objectiveUpdateSub = eventBus.subscribe('objective_update', async (data) => {
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
-            await sendProgressUpdate(currentProgress, `[${timestamp}] 📋 Task ${data.taskId} update: ${data.previousStatus || 'new'} → ${data.newStatus}`);
+            await sendProgressUpdate(currentProgress, `[${timestamp}] 📋 Objective ${data.objectiveId} update: ${data.previousStatus || 'new'} → ${data.newStatus}`);
             
             if (data.assignedAgentId && (detailLevel === 'detailed' || detailLevel === 'verbose')) {
               await sendProgressUpdate(currentProgress, `  Assigned to: ${data.assignedAgentId}`);
@@ -1642,25 +1630,25 @@ SPECIALIST AGENT:
             if (data.progressPercentage !== undefined && (detailLevel === 'detailed' || detailLevel === 'verbose')) {
               await sendProgressUpdate(currentProgress, `  Progress: ${data.progressPercentage}%`);
             }
-          }, { repositoryPath: resolvedPath });
-          eventSubscriptions.push(taskUpdateSub);
+          }, { repositoryPath: repoPath });
+          eventSubscriptions.push(objectiveUpdateSub);
 
-          // Subscribe to task completion events
-          const taskCompleteSub = eventBus.subscribe('task_completed', async (data) => {
-            if (data.repositoryPath !== resolvedPath) return;
+          // Subscribe to objective completion events
+          const objectiveCompleteSub = eventBus.subscribe('objective_completed', async (data) => {
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
-            await sendProgressUpdate(currentProgress, `[${timestamp}] ✅ Task ${data.taskId} completed${data.completedBy ? ` by ${data.completedBy}` : ''}`);
-          }, { repositoryPath: resolvedPath });
-          eventSubscriptions.push(taskCompleteSub);
+            await sendProgressUpdate(currentProgress, `[${timestamp}] ✅ Objective ${data.objectiveId} completed${data.completedBy ? ` by ${data.completedBy}` : ''}`);
+          }, { repositoryPath: repoPath });
+          eventSubscriptions.push(objectiveCompleteSub);
         }
 
         if (monitoringMode === 'communication' || monitoringMode === 'full') {
           // Subscribe to room messages
           const roomMessageSub = eventBus.subscribe('room_message', async (data) => {
             if (roomName && data.roomName !== roomName) return;
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
@@ -1670,28 +1658,28 @@ SPECIALIST AGENT:
               const preview = data.message.message.substring(0, 50) + (data.message.message.length > 50 ? '...' : '');
               await sendProgressUpdate(currentProgress, `  Message: "${preview}"`);
             }
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(roomMessageSub);
 
           // Subscribe to room creation events
           const roomCreateSub = eventBus.subscribe('room_created', async (data) => {
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
             await sendProgressUpdate(currentProgress, `[${timestamp}] 🏠 Room created: ${data.room.name}`);
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(roomCreateSub);
 
           // Subscribe to room closure events
           const roomCloseSub = eventBus.subscribe('room_closed', async (data) => {
             if (roomName && data.roomName !== roomName) return;
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
             await sendProgressUpdate(currentProgress, `[${timestamp}] 🏠 Room closed: ${data.roomName}`);
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(roomCloseSub);
         }
 
@@ -1699,29 +1687,29 @@ SPECIALIST AGENT:
           // Subscribe to orchestration updates
           const orchestrationSub = eventBus.subscribe('orchestration_update', async (data) => {
             if (data.orchestrationId !== orchestrationId) return;
-            if (data.repositoryPath !== resolvedPath) return;
+            if (data.repositoryPath !== repoPath) return;
             
             const timestamp = new Date().toLocaleTimeString();
             const currentProgress = calculateProgress();
             await sendProgressUpdate(currentProgress, `[${timestamp}] 🏗️ Orchestration ${data.orchestrationId}: ${data.phase} (${data.status})`);
             
             if (detailLevel === 'detailed' || detailLevel === 'verbose') {
-              await sendProgressUpdate(currentProgress, `  Agents: ${data.agentCount}, Tasks: ${data.completedTasks}/${data.totalTasks}`);
+              await sendProgressUpdate(currentProgress, `  Agents: ${data.agentCount}, Objectives: ${data.completedObjectives}/${data.totalObjectives}`);
             }
-          }, { repositoryPath: resolvedPath });
+          }, { repositoryPath: repoPath });
           eventSubscriptions.push(orchestrationSub);
         }
 
         // Subscribe to system errors
         const errorSub = eventBus.subscribe('system_error', async (data) => {
-          if (data.repositoryPath && data.repositoryPath !== resolvedPath) return;
+          if (data.repositoryPath && data.repositoryPath !== repoPath) return;
           
           const timestamp = new Date().toLocaleTimeString();
           const currentProgress = calculateProgress();
           await sendProgressUpdate(currentProgress, `[${timestamp}] ❌ System error in ${data.context}: ${data.error.message}`);
           
           errors.push(`${data.context}: ${data.error.message}`);
-        }, { repositoryPath: resolvedPath });
+        }, { repositoryPath: repoPath });
         eventSubscriptions.push(errorSub);
 
         await sendProgressUpdate(25, `📡 Subscribed to ${eventSubscriptions.length} event types`);
@@ -1769,10 +1757,10 @@ SPECIALIST AGENT:
         if (agentId) {
           finalStatus = await this.monitoringService.getAgentStatus(agentId);
           await sendProgressUpdate(99, `Agent ${agentId}: ${finalStatus.status}`);
-          if (finalStatus.currentTask) {
-            await sendProgressUpdate(99, `  Current task: ${finalStatus.currentTask.description}`);
+          if (finalStatus.currentObjective) {
+            await sendProgressUpdate(99, `  Current objective: ${finalStatus.currentObjective.description}`);
           }
-          await sendProgressUpdate(99, `  Performance: ${finalStatus.performance.tasksCompleted} tasks completed`);
+          await sendProgressUpdate(99, `  Performance: ${finalStatus.performance.objectivesCompleted} objectives completed`);
         } else if (orchestrationId) {
           finalStatus = await this.monitoringService.getOrchestrationStatus(orchestrationId);
           await sendProgressUpdate(99, `Orchestration ${orchestrationId}: ${finalStatus.status}`);
@@ -1783,8 +1771,8 @@ SPECIALIST AGENT:
           await sendProgressUpdate(99, `Room ${roomName}: ${finalStatus.coordinationStatus}`);
           await sendProgressUpdate(99, `  Final message count: ${finalStatus.messageCount}`);
         } else {
-          finalStatus = await this.monitoringService.getActiveAgents(resolvedPath);
-          await sendProgressUpdate(99, `Repository ${resolvedPath}: ${finalStatus.length} active agents`);
+          finalStatus = await this.monitoringService.getActiveAgents(repoPath);
+          await sendProgressUpdate(99, `Repository ${repoPath}: ${finalStatus.length} active agents`);
         }
       } catch (error) {
         errors.push(`Failed to get final status: ${error}`);
@@ -1831,7 +1819,7 @@ SPECIALIST AGENT:
     const normalizedArgs = {
       agentId: args.agentId || args.agent_id,
       additionalInstructions: args.additionalInstructions || args.additional_instructions,
-      newTaskDescription: args.newTaskDescription || args.new_task_description,
+      newObjectiveDescription: args.newObjectiveDescription || args.new_objective_description,
       preserveContext: args.preserveContext || args.preserve_context,
       updateMetadata: args.updateMetadata || args.update_metadata
     };
@@ -1839,7 +1827,7 @@ SPECIALIST AGENT:
     const validatedArgs = ContinueAgentSessionSchema.parse({
       agentId: normalizedArgs.agentId,
       additionalInstructions: normalizedArgs.additionalInstructions,
-      newTaskDescription: normalizedArgs.newTaskDescription,
+      newObjectiveDescription: normalizedArgs.newObjectiveDescription,
       preserveContext: normalizedArgs.preserveContext,
       updateMetadata: normalizedArgs.updateMetadata
     });
@@ -1862,7 +1850,7 @@ SPECIALIST AGENT:
       const updatedAgent = await this.agentService.continueAgentSession(
         validatedArgs.agentId,
         validatedArgs.additionalInstructions,
-        validatedArgs.newTaskDescription,
+        validatedArgs.newObjectiveDescription,
         validatedArgs.preserveContext,
         validatedArgs.updateMetadata
       );
@@ -1879,13 +1867,13 @@ SPECIALIST AGENT:
           previous_status: previousStatus,
           new_status: updatedAgent.status,
           context_preserved: validatedArgs.preserveContext ?? true,
-          task_updated: !!validatedArgs.newTaskDescription,
+          objective_updated: !!validatedArgs.newObjectiveDescription,
           instructions_added: !!validatedArgs.additionalInstructions,
           claude_pid: updatedAgent.claudePid,
           room_id: updatedAgent.roomId,
           resumption_details: {
-            original_task: originalAgent.agentMetadata?.taskDescription,
-            new_task: validatedArgs.newTaskDescription,
+            original_objective: originalAgent.agentMetadata?.objectiveDescription,
+            new_objective: validatedArgs.newObjectiveDescription,
             additional_instructions: validatedArgs.additionalInstructions,
             metadata_updates: validatedArgs.updateMetadata
           }
@@ -2088,267 +2076,17 @@ SPECIALIST AGENT:
     }
   }
 
-  // =================== SEQUENTIAL PLANNING TOOLS ===================
-
-  /**
-   * Create comprehensive execution plan using sequential thinking before spawning agents
-   */
-  async createExecutionPlan(args: any): Promise<OrchestrationResult> {
-    // Map snake_case to camelCase for compatibility
-    const normalizedArgs = {
-      objective: args.objective,
-      repositoryPath: args.repositoryPath || args.repository_path,
-      foundationSessionId: args.foundationSessionId || args.foundation_session_id,
-      planningDepth: args.planningDepth || args.planning_depth,
-      includeRiskAnalysis: args.includeRiskAnalysis || args.include_risk_analysis,
-      includeResourceEstimation: args.includeResourceEstimation || args.include_resource_estimation,
-      preferredAgentTypes: args.preferredAgentTypes || args.preferred_agent_types,
-      constraints: args.constraints
-    };
-
-    try {
-      const planningRequest: PlanningRequest = {
-        objective: normalizedArgs.objective,
-        repositoryPath: normalizedArgs.repositoryPath,
-        foundationSessionId: normalizedArgs.foundationSessionId,
-        planningDepth: normalizedArgs.planningDepth || 'detailed',
-        includeRiskAnalysis: normalizedArgs.includeRiskAnalysis ?? true,
-        includeResourceEstimation: normalizedArgs.includeResourceEstimation ?? true,
-        preferredAgentTypes: normalizedArgs.preferredAgentTypes,
-        constraints: normalizedArgs.constraints
-      };
-
-      const result = await this.sequentialPlanningService.createExecutionPlan(planningRequest);
-
-      return {
-        success: result.success,
-        message: result.message,
-        data: {
-          planningId: result.planningId,
-          executionPlan: result.executionPlan,
-          planningInsights: result.planningInsights,
-          planningDuration: result.planningDuration,
-          error: result.error
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to create execution plan: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Retrieve a previously created execution plan
-   */
-  async getExecutionPlan(args: any): Promise<OrchestrationResult> {
-    const { planningId } = args;
-
-    try {
-      const executionPlan = await this.sequentialPlanningService.getExecutionPlan(planningId);
-
-      if (!executionPlan) {
-        return {
-          success: false,
-          message: `Execution plan ${planningId} not found`,
-          data: { planningId }
-        };
-      }
-
-      return {
-        success: true,
-        message: `Execution plan ${planningId} retrieved successfully`,
-        data: {
-          planningId,
-          executionPlan
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to retrieve execution plan: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
-  /**
-   * Execute an objective using a pre-created execution plan with well-defined agent tasks
-   */
-  async executeWithPlan(args: any): Promise<OrchestrationResult> {
-    // Map snake_case to camelCase for compatibility
-    const normalizedArgs = {
-      planningId: args.planningId || args.planning_id,
-      repositoryPath: args.repositoryPath || args.repository_path,
-      foundationSessionId: args.foundationSessionId || args.foundation_session_id,
-      executeImmediately: args.executeImmediately || args.execute_immediately,
-      monitoring: args.monitoring
-    };
-
-    const { planningId, repositoryPath, foundationSessionId, executeImmediately = true, monitoring = true } = normalizedArgs;
-
-    try {
-      // Step 1: Retrieve the execution plan
-      const executionPlan = await this.sequentialPlanningService.getExecutionPlan(planningId);
-      if (!executionPlan) {
-        return {
-          success: false,
-          message: `Execution plan ${planningId} not found`,
-          data: { planningId }
-        };
-      }
-
-      // Step 2: Create coordination room
-      const executionId = `exec_plan_${Date.now()}`;
-      const coordinationRoomName = `execution_${executionId}`;
-      const coordinationRoom = await this.communicationService.createRoom({
-        name: coordinationRoomName,
-        description: `Execution with plan ${planningId}: ${executionPlan.objective}`,
-        repositoryPath,
-        metadata: {
-          executionId,
-          planningId,
-          objective: executionPlan.objective,
-          planBasedExecution: true,
-          foundationSessionId
-        }
-      });
-
-      const spawnedAgents: string[] = [];
-      const createdTasks: string[] = [];
-
-      if (executeImmediately) {
-        // Step 3: Create tasks based on execution plan
-        for (const taskSpec of executionPlan.tasks) {
-          const task = await this.taskService.createTask({
-            repositoryPath,
-            taskType: taskSpec.taskType as TaskType,
-            description: `${taskSpec.title}: ${taskSpec.description}`,
-            requirements: {
-              executionId,
-              planningId,
-              taskSpecId: taskSpec.id,
-              priority: taskSpec.priority,
-              estimatedDuration: taskSpec.estimatedDuration,
-              requiredCapabilities: taskSpec.requiredCapabilities,
-              deliverables: taskSpec.deliverables,
-              acceptanceCriteria: taskSpec.acceptanceCriteria,
-              complexity: taskSpec.complexity,
-              riskLevel: taskSpec.riskLevel,
-              planBasedExecution: true
-            },
-            priority: taskSpec.priority
-          });
-          createdTasks.push(task.id);
-        }
-
-        // Step 4: Spawn agents based on execution plan
-        for (const agentSpec of executionPlan.agents) {
-          const agentTaskAssignments = agentSpec.taskAssignments
-            .map(taskSpecId => {
-              const taskIndex = executionPlan.tasks.findIndex(t => t.id === taskSpecId);
-              return taskIndex >= 0 ? createdTasks[taskIndex] : null;
-            })
-            .filter(Boolean) as string[];
-
-          const agentPrompt = this.generatePlanBasedAgentPrompt(
-            agentSpec,
-            executionPlan,
-            agentTaskAssignments,
-            coordinationRoomName
-          );
-
-          const agent = await this.agentService.createAgent({
-            agentName: agentSpec.agentType,
-            agentType: agentSpec.agentType as any,
-            repositoryPath,
-            taskDescription: `Execute planned ${agentSpec.role} responsibilities: ${agentSpec.responsibilities.join(', ')}`,
-            capabilities: agentSpec.requiredCapabilities,
-            roomId: coordinationRoom.id,
-            metadata: {
-              executionId,
-              planningId,
-              agentSpecId: agentSpec.agentType,
-              role: agentSpec.role,
-              responsibilities: agentSpec.responsibilities,
-              taskAssignments: agentTaskAssignments,
-              estimatedWorkload: agentSpec.estimatedWorkload,
-              planBasedExecution: true,
-              executionPlan: {
-                objective: executionPlan.objective,
-                complexity: executionPlan.complexityAnalysis.complexityLevel,
-                totalTasks: executionPlan.tasks.length,
-                totalAgents: executionPlan.agents.length
-              }
-            },
-            claudeConfig: {
-              prompt: agentPrompt,
-              model: executionPlan.resourceEstimation.modelRecommendations[agentSpec.agentType] || 'claude-3-7-sonnet-latest'
-            }
-          });
-
-          spawnedAgents.push(agent.id);
-
-          // Assign tasks to agent
-          for (const taskId of agentTaskAssignments) {
-            await this.taskService.assignTask(taskId, agent.id);
-          }
-        }
-
-        // Step 5: Send coordination message with plan details
-        await this.communicationService.sendMessage({
-          roomName: coordinationRoomName,
-          agentName: 'system',
-          message: `🎯 Plan-Based Execution Started\n\nObjective: ${executionPlan.objective}\nPlanning ID: ${planningId}\nExecution ID: ${executionId}\n\nSpawned ${spawnedAgents.length} agents with ${createdTasks.length} planned tasks.\n\nAll agents have received detailed execution plans with specific responsibilities, deliverables, and acceptance criteria.`,
-          messageType: 'system' as MessageType
-        });
-      }
-
-      return {
-        success: true,
-        message: `Plan-based execution ${executeImmediately ? 'started' : 'prepared'} successfully`,
-        data: {
-          planningId,
-          executionId,
-          coordinationRoom: coordinationRoomName,
-          spawnedAgents: executeImmediately ? spawnedAgents : [],
-          createdTasks: executeImmediately ? createdTasks : [],
-          monitoringSetup: monitoring,
-          executionPlan: {
-            objective: executionPlan.objective,
-            totalTasks: executionPlan.tasks.length,
-            totalAgents: executionPlan.agents.length,
-            estimatedDuration: executionPlan.resourceEstimation.totalEstimatedDuration,
-            parallelExecutionTime: executionPlan.resourceEstimation.parallelExecutionTime,
-            confidenceScore: executionPlan.confidenceScore
-          }
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        message: `Failed to execute with plan: ${error}`,
-        data: { error: String(error) }
-      };
-    }
-  }
-
   /**
    * Generate specialized prompt for plan-based agent execution
    */
   private generatePlanBasedAgentPrompt(
     agentSpec: any,
     executionPlan: ExecutionPlan,
-    assignedTaskIds: string[],
+    assignedObjectiveIds: string[],
     coordinationRoomName: string
   ): string {
-    const assignedTasks = executionPlan.tasks.filter(task => 
-      agentSpec.taskAssignments.includes(task.id)
+    const assignedObjectives = executionPlan.objectives.filter(objective => 
+      agentSpec.objectiveAssignments.includes(objective.id)
     );
 
     return `🎯 PLAN-BASED ${agentSpec.role.toUpperCase()} AGENT - Executing Pre-Planned Objectives
@@ -2365,7 +2103,7 @@ You are a specialized ${agentSpec.role} with COMPLETE CLAUDE CODE CAPABILITIES w
 🧠 KEY ADVANTAGE - YOU KNOW EXACTLY WHAT TO DO:
 Unlike typical agents that figure things out as they go, you have been provided with a detailed execution plan that specifies:
 - Your exact responsibilities and deliverables
-- Task dependencies and coordination requirements  
+- Objective dependencies and coordination requirements  
 - Acceptance criteria and quality standards
 - Risk mitigation strategies and contingency plans
 - Resource allocations and timeline estimates
@@ -2374,20 +2112,20 @@ Unlike typical agents that figure things out as they go, you have been provided 
 ${agentSpec.responsibilities.map((resp: string, index: number) => `${index + 1}. ${resp}`).join('\n')}
 
 📋 YOUR ASSIGNED TASKS:
-${assignedTasks.map((task: any, index: number) => `
-TASK ${index + 1}: ${task.title}
-- Description: ${task.description}
-- Priority: ${task.priority}/10
-- Estimated Duration: ${task.estimatedDuration} minutes
-- Complexity: ${task.complexity}
-- Risk Level: ${task.riskLevel}
-- Dependencies: ${task.dependencies.length > 0 ? task.dependencies.join(', ') : 'None'}
+${assignedObjectives.map((objective: any, index: number) => `
+TASK ${index + 1}: ${objective.title}
+- Description: ${objective.description}
+- Priority: ${objective.priority}/10
+- Estimated Duration: ${objective.estimatedDuration} minutes
+- Complexity: ${objective.complexity}
+- Risk Level: ${objective.riskLevel}
+- Dependencies: ${objective.dependencies.length > 0 ? objective.dependencies.join(', ') : 'None'}
 
 DELIVERABLES:
-${task.deliverables.map((deliverable: string) => `- ${deliverable}`).join('\n')}
+${objective.deliverables.map((deliverable: string) => `- ${deliverable}`).join('\n')}
 
 ACCEPTANCE CRITERIA:
-${task.acceptanceCriteria.map((criteria: string) => `- ${criteria}`).join('\n')}
+${objective.acceptanceCriteria.map((criteria: string) => `- ${criteria}`).join('\n')}
 `).join('\n')}
 
 🤝 COORDINATION REQUIREMENTS:
@@ -2412,16 +2150,16 @@ You have access to ALL Claude Code tools including:
 - Progress reporting tools (report_progress) for status updates
 
 🎯 EXECUTION GUIDELINES:
-1. **Follow the Plan**: Execute your assigned tasks according to the detailed specifications
+1. **Follow the Plan**: Execute your assigned objectives according to the detailed specifications
 2. **Meet Quality Standards**: Ensure all deliverables meet the acceptance criteria  
 3. **Coordinate Actively**: Use the coordination room for status updates and issue resolution
-4. **Report Progress**: Use report_progress() to update task status and completion
-5. **Handle Dependencies**: Respect task dependencies and coordinate with other agents
+4. **Report Progress**: Use report_progress() to update objective status and completion
+5. **Handle Dependencies**: Respect objective dependencies and coordinate with other agents
 6. **Apply Risk Mitigation**: Be aware of identified risks and apply mitigation strategies
 7. **Store Insights**: Document learnings and discoveries in the knowledge graph
 
 🚀 SUCCESS METRICS:
-- All assigned tasks completed successfully
+- All assigned objectives completed successfully
 - All deliverables meet acceptance criteria
 - All quality gates passed
 - Coordination requirements fulfilled
@@ -2431,15 +2169,14 @@ CRITICAL ADVANTAGE: You have a comprehensive roadmap created through sequential 
 This eliminates the typical problem of agents not knowing what they're doing.
 Execute systematically according to your plan and coordinate effectively with other agents.
 
-Start by reviewing your assigned tasks and sending a status message to the coordination room confirming your understanding and planned approach.`;
+Start by reviewing your assigned objectives and sending a status message to the coordination room confirming your understanding and planned approach.`;
   }
 
   /**
-   * Generate basic plan sections from an objective for orchestration - simplified to task templates
+   * Generate basic plan sections from an objective for orchestration - simplified to objective templates
    */
   private generateBasicPlanSections(objective: string): any[] {
     const now = new Date().toISOString();
-    const { ulid } = require('ulidx');
     
     return [
       {
@@ -2451,15 +2188,15 @@ Start by reviewing your assigned tasks and sending a status message to the coord
         estimatedHours: 2,
         priority: 1,
         prerequisites: [],
-        taskTemplates: [
+        objectiveTemplates: [
           {
             description: 'Analyze objective and break down into specific requirements',
-            taskType: 'analysis',
+            objectiveType: 'analysis',
             estimatedHours: 1
           },
           {
-            description: 'Create detailed implementation plan with task breakdown',
-            taskType: 'analysis',
+            description: 'Create detailed implementation plan with objective breakdown',
+            objectiveType: 'analysis',
             estimatedHours: 1
           }
         ],
@@ -2475,15 +2212,15 @@ Start by reviewing your assigned tasks and sending a status message to the coord
         estimatedHours: 4,
         priority: 2,
         prerequisites: [],
-        taskTemplates: [
+        objectiveTemplates: [
           {
             description: 'Implement core functionality as defined in requirements',
-            taskType: 'feature',
+            objectiveType: 'feature',
             estimatedHours: 3
           },
           {
             description: 'Handle edge cases and error scenarios',
-            taskType: 'feature',
+            objectiveType: 'feature',
             estimatedHours: 1
           }
         ],
@@ -2499,15 +2236,15 @@ Start by reviewing your assigned tasks and sending a status message to the coord
         estimatedHours: 2,
         priority: 3,
         prerequisites: [],
-        taskTemplates: [
+        objectiveTemplates: [
           {
             description: 'Create and run comprehensive tests',
-            taskType: 'testing',
+            objectiveType: 'testing',
             estimatedHours: 1.5
           },
           {
             description: 'Validate implementation meets all requirements',
-            taskType: 'testing',
+            objectiveType: 'testing',
             estimatedHours: 0.5
           }
         ],

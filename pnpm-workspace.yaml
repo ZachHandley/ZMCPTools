@@ -26,3 +26,6 @@ onlyBuiltDependencies:
   - tree-sitter-toml
   - tree-sitter-typescript
   - tree-sitter-yaml
+overrides:
+  zastro-websockets: link:../ZachHandley/packages/zastro-websockets
+  zastro-websockets-node: link:../../.local/share/pnpm/global/5/node_modules/zastro-websockets-node

@@ -21,7 +21,7 @@ export type BaseToolResponse = z.infer<typeof BaseToolResponseSchema>;
 export const AgentOrchestrationResponseSchema = BaseToolResponseSchema.extend({
   data: z.object({
     agent_id: z.string().optional().describe("ID of the spawned or affected agent"),
-    task_id: z.string().optional().describe("ID of the created or affected task"),
+    objective_id: z.string().optional().describe("ID of the created or affected objective"),
     room_name: z.string().optional().describe("Name of the communication room"),
     orchestration_id: z.string().optional().describe("ID of the orchestration session"),
     agents: z.array(z.any()).optional().describe("List of agents (for list operations)"),

@@ -60,9 +60,9 @@ export class ErrorLogRepository extends BaseRepository<
   /**
    * Find error logs by task ID
    */
-  async findByTaskId(taskId: string): Promise<ErrorLog[]> {
+  async findByObjectiveId(objectiveId: string): Promise<ErrorLog[]> {
     return this.query()
-      .where(eq(errorLogs.taskId, taskId))
+      .where(eq(errorLogs.objectiveId, objectiveId))
       .orderBy(errorLogs.createdAt, 'desc')
       .execute();
   }
@@ -350,7 +350,7 @@ export class ErrorLogRepository extends BaseRepository<
 
     // Initialize counters
     const errorTypes: ErrorType[] = ['runtime', 'compilation', 'network', 'filesystem', 'authentication', 'permission', 'validation', 'configuration', 'dependency', 'timeout', 'memory', 'system'];
-    const errorCategories: ErrorCategory[] = ['mcp_tool', 'agent_spawn', 'task_execution', 'web_scraping', 'database', 'communication', 'file_operation', 'external_service', 'user_input', 'system_resource'];
+    const errorCategories: ErrorCategory[] = ['mcp_tool', 'agent_spawn', 'objective_execution', 'web_scraping', 'database', 'communication', 'file_operation', 'external_service', 'user_input', 'system_resource'];
     const severities: Severity[] = ['low', 'medium', 'high', 'critical'];
     const statuses: ResolutionStatus[] = ['unresolved', 'in_progress', 'resolved', 'workaround', 'ignored', 'duplicate'];
 

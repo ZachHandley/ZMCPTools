@@ -1,6 +1,6 @@
 {
   "name": "zmcp-tools",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TypeScript implementation of ZMCPTools with enhanced MCP tools and multi-agent orchestration",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
@@ -26,14 +26,17 @@
   },
   "files": [
     "dist/**/*",
+    "dashboard/dist/**/*",
     "README.md"
   ],
   "preferGlobal": true,
   "scripts": {
-    "build": "tsup",
+    "build": "pnpm run build:dashboard && tsup",
+    "build:dashboard": "cd dashboard && pnpm install && pnpm run build",
     "postbuild": "chmod +x dist/server/index.js dist/cli/index.js || true",
     "dev": "tsx src/index.ts",
     "dev:cli": "tsx src/cli/index.ts",
+    "dev:dashboard": "cd dashboard && pnpm run dev",
     "start": "node dist/server/index.js",
     "start:cli": "node dist/cli/index.js",
     "test": "vitest",
@@ -98,7 +101,10 @@
     "turndown": "^7.2.0",
     "ulidx": "^2.4.1",
     "user-agents": "^1.1.596",
+    "ws": "^8.18.0",
     "xml2js": "^0.6.2",
+    "zastro-websockets": "link:../ZachHandley/packages/zastro-websockets",
+    "zastro-websockets-node": "link:../ZAstroWebsockets/packages/node",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   },
@@ -109,6 +115,7 @@
     "@types/turndown": "^5.0.5",
     "@types/user-agents": "^1.0.4",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.13",
     "@types/xml2js": "^0.4.14",
     "@typescript-eslint/eslint-plugin": "^8.36.0",
     "@typescript-eslint/parser": "^8.36.0",

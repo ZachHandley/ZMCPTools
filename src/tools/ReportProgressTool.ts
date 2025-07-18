@@ -12,7 +12,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { McpTool } from '../schemas/tools/index.js';
 import { eventBus } from "../services/EventBus.js";
 import { AgentService } from "../services/AgentService.js";
-import { TaskService } from "../services/TaskService.js";
+import { ObjectiveService } from "../services/ObjectiveService.js";
 import { CommunicationService } from "../services/CommunicationService.js";
 import { DatabaseManager } from "../database/index.js";
 import { Logger } from "../utils/logger.js";
@@ -24,7 +24,7 @@ import {
   createErrorResponse,
   type ProgressReportResponse,
 } from "../schemas/toolResponses.js";
-import type { TaskStatus, AgentStatus } from "../schemas/index.js";
+import type { ObjectiveStatus, AgentStatus } from "../schemas/index.js";
 import {
   ReportProgressSchema,
   type ReportProgressInput,
@@ -42,13 +42,13 @@ export type ProgressReport = ProgressReportInternal;
 
 export class ReportProgressTool {
   private agentService: AgentService;
-  private taskService: TaskService;
+  private objectiveService: ObjectiveService;
   private communicationService: CommunicationService;
   private progressTracker: ProgressTracker;
 
   constructor(private db: DatabaseManager) {
     this.agentService = new AgentService(db);
-    this.taskService = new TaskService(db);
+    this.objectiveService = new ObjectiveService(db);
     this.communicationService = new CommunicationService(db);
     this.progressTracker = new ProgressTracker(db);
   }
@@ -61,7 +61,7 @@ export class ReportProgressTool {
       {
         name: "report_progress",
         description:
-          "Report progress updates for agent tasks and status changes",
+          "Report progress updates for agent objectives and status changes",
         inputSchema: zodToJsonSchema(ReportProgressSchema),
         outputSchema: zodToJsonSchema(ProgressReportResponseSchema),
         handler: this.reportProgress.bind(this),
@@ -84,7 +84,7 @@ export class ReportProgressTool {
         repositoryPath: args.repositoryPath || args.repository_path,
         progressType: args.progressType || args.progress_type,
         message: args.message,
-        taskId: args.taskId || args.task_id,
+        objectiveId: args.objectiveId || args.objective_id,
         progressPercentage: args.progressPercentage || args.progress_percentage,
         results: args.results,
         error: args.error,
@@ -97,7 +97,7 @@ export class ReportProgressTool {
         repositoryPath,
         progressType,
         message,
-        taskId,
+        objectiveId,
         progressPercentage,
         results,
         error,
@@ -124,7 +124,7 @@ export class ReportProgressTool {
         progressType,
         message,
         metadata: {
-          taskId,
+          objectiveId,
           progressPercentage,
           results,
           error,
@@ -138,8 +138,8 @@ export class ReportProgressTool {
         case "status":
           await this.handleStatusProgress(progressReport);
           break;
-        case "task":
-          await this.handleTaskProgress(progressReport);
+        case "objective":
+          await this.handleObjectiveProgress(progressReport);
           break;
         case "milestone":
           await this.handleMilestoneProgress(progressReport);
@@ -171,7 +171,7 @@ export class ReportProgressTool {
           progress_type: progressType,
           progress_percentage: progressPercentage,
           room_broadcast: broadcastToRoom,
-          task_id: taskId,
+          objective_id: objectiveId,
         },
         Date.now() - startTime
       );
@@ -223,13 +223,13 @@ export class ReportProgressTool {
   /**
    * Handle task progress updates
    */
-  private async handleTaskProgress(report: ProgressReport): Promise<void> {
+  private async handleObjectiveProgress(report: ProgressReport): Promise<void> {
     const { agentId, repositoryPath } = report;
-    const { taskId, progressPercentage, newStatus, previousStatus } =
+    const { objectiveId, progressPercentage, newStatus, previousStatus } =
       report.metadata || {};
 
-    if (!taskId) {
-      logger.warn("Task progress report missing taskId");
+    if (!objectiveId) {
+      logger.warn("Objective progress report missing objectiveId");
       return;
     }
 
@@ -238,10 +238,10 @@ export class ReportProgressTool {
     if (progressPercentage !== undefined) {
       try {
         const progressContext = {
-          contextId: taskId,
-          contextType: "task" as const,
+          contextId: objectiveId,
+          contextType: "objective" as const,
           repositoryPath,
-          metadata: { taskId, agentId },
+          metadata: { objectiveId, agentId },
         };
 
         const progressReport = await this.progressTracker.reportAgentProgress(
@@ -254,9 +254,9 @@ export class ReportProgressTool {
         validatedProgress = progressReport.reportedProgress;
 
         logger.debug(
-          `Task progress validated: ${progressPercentage}% -> ${validatedProgress}%`,
+          `Objective progress validated: ${progressPercentage}% -> ${validatedProgress}%`,
           {
-            taskId,
+            objectiveId,
             agentId,
             actualProgress: progressPercentage,
             reportedProgress: validatedProgress,
@@ -274,7 +274,7 @@ export class ReportProgressTool {
 
     // Update task progress if provided
     if (validatedProgress !== undefined) {
-      await this.taskService.updateTask(taskId, {
+      await this.objectiveService.updateObjective(objectiveId, {
         progressPercentage: validatedProgress,
         notes: report.message,
       });
@@ -282,17 +282,17 @@ export class ReportProgressTool {
 
     // Update task status if provided
     if (newStatus) {
-      await this.taskService.updateTask(taskId, {
-        status: newStatus as TaskStatus,
+      await this.objectiveService.updateObjective(objectiveId, {
+        status: newStatus as ObjectiveStatus,
         notes: report.message,
       });
     }
 
     // Emit task update event
-    await eventBus.emit("task_update", {
-      taskId,
-      previousStatus: previousStatus as TaskStatus,
-      newStatus: newStatus as TaskStatus,
+    await eventBus.emit("objective_update", {
+      objectiveId,
+      previousStatus: previousStatus as ObjectiveStatus,
+      newStatus: newStatus as ObjectiveStatus,
       assignedAgentId: agentId,
       progressPercentage: validatedProgress,
       timestamp: new Date(),
@@ -335,21 +335,21 @@ export class ReportProgressTool {
    */
   private async handleErrorProgress(report: ProgressReport): Promise<void> {
     const { agentId, repositoryPath } = report;
-    const { error, taskId } = report.metadata || {};
+    const { error, objectiveId } = report.metadata || {};
 
     // Create error object
     const errorObj = new Error(error || report.message);
 
     // Update task if provided
-    if (taskId) {
-      await this.taskService.updateTask(taskId, {
+    if (objectiveId) {
+      await this.objectiveService.updateObjective(objectiveId, {
         status: "failed",
         notes: `Error: ${report.message}`,
       });
 
       // Emit task update event
-      await eventBus.emit("task_update", {
-        taskId,
+      await eventBus.emit("objective_update", {
+        objectiveId,
         newStatus: "failed",
         assignedAgentId: agentId,
         timestamp: new Date(),
@@ -364,7 +364,7 @@ export class ReportProgressTool {
     // Emit system error event
     await eventBus.emit("system_error", {
       error: errorObj,
-      context: `Agent ${agentId}${taskId ? ` (Task: ${taskId})` : ""}`,
+      context: `Agent ${agentId}${objectiveId ? ` (Objective: ${objectiveId})` : ""}`,
       timestamp: new Date(),
       repositoryPath,
     });
@@ -377,19 +377,19 @@ export class ReportProgressTool {
     report: ProgressReport
   ): Promise<void> {
     const { agentId, repositoryPath } = report;
-    const { taskId, results } = report.metadata || {};
+    const { objectiveId, results } = report.metadata || {};
 
     // Update task if provided
-    if (taskId) {
-      await this.taskService.updateTask(taskId, {
+    if (objectiveId) {
+      await this.objectiveService.updateObjective(objectiveId, {
         status: "completed",
         notes: report.message,
         results,
       });
 
       // Emit task completion event
-      await eventBus.emit("task_completed", {
-        taskId,
+      await eventBus.emit("objective_completed", {
+        objectiveId,
         completedBy: agentId,
         results,
         timestamp: new Date(),
@@ -401,7 +401,7 @@ export class ReportProgressTool {
     await this.agentService.updateAgentStatus(agentId, {
       status: "active", // Agent is available for new tasks
       metadata: {
-        lastCompletedTask: taskId,
+        lastCompletedObjective: objectiveId,
         completionMessage: report.message,
         completionResults: results,
       },
@@ -462,15 +462,15 @@ export class ReportProgressTool {
    */
   private formatProgressForRoom(report: ProgressReport): string {
     const { progressType, message } = report;
-    const { taskId, progressPercentage, error } = report.metadata || {};
+    const { objectiveId, progressPercentage, error } = report.metadata || {};
 
     const timestamp = new Date().toLocaleTimeString();
     const progressIcon = this.getProgressIcon(progressType);
 
     let formattedMessage = `${progressIcon} [${timestamp}] ${message}`;
 
-    if (taskId) {
-      formattedMessage += ` (Task: ${taskId})`;
+    if (objectiveId) {
+      formattedMessage += ` (Objective: ${objectiveId})`;
     }
 
     if (progressPercentage !== undefined) {

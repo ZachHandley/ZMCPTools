@@ -1,0 +1,403 @@
+---
+import Layout from '../../layouts/Layout.astro';
+
+// Access the dynamic route parameter
+const { projectId } = Astro.params;
+
+// Validate projectId exists
+if (!projectId) {
+  return Astro.redirect('/');
+}
+
+const title = `Project: ${decodeURIComponent(projectId)}`;
+---
+
+<Layout title={title}>
+  <div id="project-detail-app" data-project-id={projectId}></div>
+  
+  <script>
+    import { ref, onMounted, createApp } from 'vue';
+    import { ApiClient } from '../../services/ApiClient.ts';
+
+    const ProjectDetailApp = {
+      setup() {
+        const project = ref(null);
+        const agents = ref([]);
+        const tasks = ref([]);
+        const rooms = ref([]);
+        const orchestrations = ref([]);
+        const loading = ref(true);
+        const error = ref(null);
+        const activeTab = ref('overview');
+        
+        const projectId = document.getElementById('project-detail-app').getAttribute('data-project-id');
+        const decodedProjectId = decodeURIComponent(projectId);
+        
+        const apiClient = new ApiClient();
+
+        const tabs = [
+          { id: 'overview', name: 'Overview', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+          { id: 'agents', name: 'Agents', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z' },
+          { id: 'tasks', name: 'Tasks', icon: 'M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
+          { id: 'rooms', name: 'Rooms', icon: 'M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z' },
+          { id: 'orchestrations', name: 'Orchestrations', icon: 'M4 7v10c0 2.21 3.358 4 7.5 4S19 19.21 19 17V7c0 2.21-3.358 4-7.5 4S4 9.21 4 7z' }
+        ];
+
+        const loadData = async () => {
+          try {
+            loading.value = true;
+            error.value = null;
+            
+            // Load project details
+            const projectResponse = await fetch(`/api/projects/${encodeURIComponent(projectId)}.json`);
+            if (!projectResponse.ok) {
+              throw new Error(`Failed to load project: ${projectResponse.statusText}`);
+            }
+            project.value = await projectResponse.json();
+            
+            // Load related data
+            const [agentsData, roomsData, orchestrationsData] = await Promise.all([
+              apiClient.getAgents().catch(() => []),
+              apiClient.getRooms().catch(() => []),
+              apiClient.getOrchestrations().catch(() => [])
+            ]);
+            
+            // Filter data related to this project
+            const projectPath = project.value?.repositoryPath;
+            if (projectPath) {
+              agents.value = agentsData.filter(agent => agent.repositoryPath === projectPath);
+              rooms.value = roomsData.filter(room => room.repositoryPath === projectPath);
+              orchestrations.value = orchestrationsData.filter(orch => orch.repositoryPath === projectPath);
+            }
+            
+          } catch (err) {
+            console.error('Failed to load project data:', err);
+            error.value = err.message;
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const formatDate = (dateString) => {
+          if (!dateString) return 'N/A';
+          const date = new Date(dateString);
+          return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        };
+
+        const formatRelativeTime = (dateString) => {
+          if (!dateString) return 'N/A';
+          const date = new Date(dateString);
+          const now = new Date();
+          const diff = now.getTime() - date.getTime();
+          
+          if (diff < 60000) return 'Just now';
+          if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+          if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+          if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+          return date.toLocaleDateString();
+        };
+
+        onMounted(() => {
+          loadData();
+        });
+
+        return {
+          project,
+          agents,
+          tasks,
+          rooms,
+          orchestrations,
+          loading,
+          error,
+          activeTab,
+          tabs,
+          decodedProjectId,
+          loadData,
+          formatDate,
+          formatRelativeTime
+        };
+      },
+      
+      template: `
+        <div class="min-h-screen bg-gray-50">
+          <!-- Header -->
+          <div class="bg-white shadow-sm border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <nav class="flex items-center space-x-2 text-sm text-gray-500 mb-2">
+                    <a href="/" class="hover:text-gray-700">Dashboard</a>
+                    <span>/</span>
+                    <span class="text-gray-900">Projects</span>
+                    <span>/</span>
+                    <span class="text-gray-900">{{ decodedProjectId }}</span>
+                  </nav>
+                  <h1 class="text-2xl font-bold text-gray-900">
+                    {{ project?.name || decodedProjectId }}
+                  </h1>
+                  <p class="mt-1 text-sm text-gray-600" v-if="project">
+                    {{ project.repositoryPath }}
+                  </p>
+                </div>
+                <div class="flex items-center space-x-3">
+                  <span v-if="project" 
+                    :class="{
+                      'bg-green-100 text-green-800': project.status === 'active' || project.status === 'connected',
+                      'bg-yellow-100 text-yellow-800': project.status === 'inactive',
+                      'bg-red-100 text-red-800': project.status === 'error' || project.status === 'disconnected'
+                    }"
+                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize"
+                  >
+                    {{ project.status }}
+                  </span>
+                  <button @click="loadData" 
+                    :disabled="loading"
+                    class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  >
+                    <svg :class="{ 'animate-spin': loading }" class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <!-- Loading State -->
+            <div v-if="loading" class="flex items-center justify-center py-12">
+              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              <span class="ml-2 text-gray-600">Loading project details...</span>
+            </div>
+
+            <!-- Error State -->
+            <div v-else-if="error" class="bg-red-50 border border-red-200 rounded-md p-4">
+              <div class="flex">
+                <svg class="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div class="ml-3">
+                  <h3 class="text-sm font-medium text-red-800">Error loading project</h3>
+                  <p class="mt-1 text-sm text-red-700">{{ error }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Main Content -->
+            <div v-else>
+              <!-- Tabs -->
+              <div class="border-b border-gray-200 mb-6">
+                <nav class="-mb-px flex space-x-8">
+                  <button
+                    v-for="tab in tabs"
+                    :key="tab.id"
+                    @click="activeTab = tab.id"
+                    :class="{
+                      'border-blue-500 text-blue-600': activeTab === tab.id,
+                      'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== tab.id
+                    }"
+                    class="group inline-flex items-center py-2 px-1 border-b-2 font-medium text-sm"
+                  >
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon" />
+                    </svg>
+                    {{ tab.name }}
+                  </button>
+                </nav>
+              </div>
+
+              <!-- Tab Content -->
+              <div class="tab-content">
+                <!-- Overview Tab -->
+                <div v-if="activeTab === 'overview'" class="space-y-6">
+                  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Project Information -->
+                    <div class="lg:col-span-2 bg-white shadow rounded-lg p-6">
+                      <h3 class="text-lg font-medium text-gray-900 mb-4">Project Information</h3>
+                      <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <dt class="text-sm font-medium text-gray-500">Project Name</dt>
+                          <dd class="mt-1 text-sm text-gray-900">{{ project.name }}</dd>
+                        </div>
+                        <div>
+                          <dt class="text-sm font-medium text-gray-500">Repository Path</dt>
+                          <dd class="mt-1 text-sm text-gray-900 font-mono">{{ project.repositoryPath }}</dd>
+                        </div>
+                        <div>
+                          <dt class="text-sm font-medium text-gray-500">MCP Server Type</dt>
+                          <dd class="mt-1 text-sm text-gray-900">{{ project.mcpServerType }}</dd>
+                        </div>
+                        <div v-if="project.mcpServerPid">
+                          <dt class="text-sm font-medium text-gray-500">Server PID</dt>
+                          <dd class="mt-1 text-sm text-gray-900">{{ project.mcpServerPid }}</dd>
+                        </div>
+                        <div v-if="project.mcpServerPort">
+                          <dt class="text-sm font-medium text-gray-500">Server Address</dt>
+                          <dd class="mt-1 text-sm text-gray-900">{{ project.mcpServerHost }}:{{ project.mcpServerPort }}</dd>
+                        </div>
+                        <div>
+                          <dt class="text-sm font-medium text-gray-500">Started</dt>
+                          <dd class="mt-1 text-sm text-gray-900">{{ formatDate(project.startTime) }}</dd>
+                        </div>
+                        <div v-if="project.lastHeartbeat">
+                          <dt class="text-sm font-medium text-gray-500">Last Seen</dt>
+                          <dd class="mt-1 text-sm text-gray-900">{{ formatRelativeTime(project.lastHeartbeat) }}</dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    <!-- Quick Stats -->
+                    <div class="space-y-4">
+                      <div class="bg-white shadow rounded-lg p-6">
+                        <h3 class="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
+                        <div class="space-y-3">
+                          <div class="flex justify-between">
+                            <span class="text-sm text-gray-500">Active Agents</span>
+                            <span class="text-sm font-medium text-gray-900">{{ agents.length }}</span>
+                          </div>
+                          <div class="flex justify-between">
+                            <span class="text-sm text-gray-500">Rooms</span>
+                            <span class="text-sm font-medium text-gray-900">{{ rooms.length }}</span>
+                          </div>
+                          <div class="flex justify-between">
+                            <span class="text-sm text-gray-500">Orchestrations</span>
+                            <span class="text-sm font-medium text-gray-900">{{ orchestrations.length }}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Web UI Access -->
+                      <div v-if="project.webUiEnabled" class="bg-white shadow rounded-lg p-6">
+                        <h3 class="text-lg font-medium text-gray-900 mb-4">Web UI</h3>
+                        <a :href="\`http://\${project.webUiHost}:\${project.webUiPort}\`" 
+                           target="_blank"
+                           class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                          <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          Open Web UI
+                        </a>
+                        <p class="mt-2 text-xs text-gray-500">{{ project.webUiHost }}:{{ project.webUiPort }}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Project Metadata -->
+                  <div v-if="project.projectMetadata && Object.keys(project.projectMetadata).length > 0" class="bg-white shadow rounded-lg p-6">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Project Metadata</h3>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                      <pre class="text-sm text-gray-600 whitespace-pre-wrap">{{ JSON.stringify(project.projectMetadata, null, 2) }}</pre>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Agents Tab -->
+                <div v-if="activeTab === 'agents'">
+                  <div v-if="agents.length === 0" class="text-center py-12">
+                    <svg class="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No agents found</h3>
+                    <p class="mt-1 text-sm text-gray-500">No agents are currently active for this project.</p>
+                  </div>
+                  
+                  <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div v-for="agent in agents" :key="agent.id" class="bg-white shadow rounded-lg p-4">
+                      <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-sm font-medium text-gray-900">{{ agent.agentName }}</h4>
+                        <span :class="{
+                          'bg-green-100 text-green-800': agent.status === 'active',
+                          'bg-yellow-100 text-yellow-800': agent.status === 'idle',
+                          'bg-blue-100 text-blue-800': agent.status === 'completed',
+                          'bg-red-100 text-red-800': agent.status === 'failed'
+                        }" class="px-2 py-1 text-xs font-medium rounded-full">
+                          {{ agent.status }}
+                        </span>
+                      </div>
+                      <p class="text-xs text-gray-500">{{ agent.taskDescription || 'No description' }}</p>
+                      <div class="mt-2 text-xs text-gray-400">
+                        Created: {{ formatRelativeTime(agent.createdAt) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Tasks Tab -->
+                <div v-if="activeTab === 'tasks'">
+                  <div class="text-center py-12">
+                    <svg class="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">Tasks view coming soon</h3>
+                    <p class="mt-1 text-sm text-gray-500">Task management interface will be available in a future update.</p>
+                  </div>
+                </div>
+
+                <!-- Rooms Tab -->
+                <div v-if="activeTab === 'rooms'">
+                  <div v-if="rooms.length === 0" class="text-center py-12">
+                    <svg class="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No communication rooms</h3>
+                    <p class="mt-1 text-sm text-gray-500">No agent communication rooms are active for this project.</p>
+                  </div>
+                  
+                  <div v-else class="space-y-4">
+                    <div v-for="room in rooms" :key="room.roomId" class="bg-white shadow rounded-lg p-4">
+                      <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-sm font-medium text-gray-900">{{ room.roomName }}</h4>
+                        <span class="text-xs text-gray-500">{{ room.memberCount }} members</span>
+                      </div>
+                      <p class="text-xs text-gray-600 mb-2">{{ room.topicSummary || 'No description' }}</p>
+                      <div class="flex justify-between text-xs text-gray-400">
+                        <span>{{ room.messageCount }} messages</span>
+                        <span>{{ formatRelativeTime(room.lastActivity) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Orchestrations Tab -->
+                <div v-if="activeTab === 'orchestrations'">
+                  <div v-if="orchestrations.length === 0" class="text-center py-12">
+                    <svg class="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.358 4 7.5 4S19 19.21 19 17V7c0 2.21-3.358 4-7.5 4S4 9.21 4 7z" />
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No orchestrations found</h3>
+                    <p class="mt-1 text-sm text-gray-500">No agent orchestrations are currently running for this project.</p>
+                  </div>
+                  
+                  <div v-else class="space-y-4">
+                    <div v-for="orch in orchestrations" :key="orch.id" class="bg-white shadow rounded-lg p-4">
+                      <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-sm font-medium text-gray-900">{{ orch.title || 'Orchestration' }}</h4>
+                        <span :class="{
+                          'bg-green-100 text-green-800': orch.status === 'active',
+                          'bg-blue-100 text-blue-800': orch.status === 'completed',
+                          'bg-yellow-100 text-yellow-800': orch.status === 'pending',
+                          'bg-red-100 text-red-800': orch.status === 'failed'
+                        }" class="px-2 py-1 text-xs font-medium rounded-full">
+                          {{ orch.status }}
+                        </span>
+                      </div>
+                      <p class="text-xs text-gray-600 mb-2">{{ orch.objective || 'No objective specified' }}</p>
+                      <div class="text-xs text-gray-400">
+                        Created: {{ formatRelativeTime(orch.createdAt) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    };
+
+    createApp(ProjectDetailApp).mount('#project-detail-app');
+  </script>
+</Layout>

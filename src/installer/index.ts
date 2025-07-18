@@ -268,7 +268,7 @@ function updateHookConfiguration(): void {
     }
   }
   
-  // Hook configuration for session start context injection
+  // Hook configuration for session start context injection and package file monitoring
   const hookConfig = {
     "Notification": [
       {
@@ -277,6 +277,521 @@ function updateHookConfiguration(): void {
           {
             "type": "command",
             "command": "./.claude/hooks/context-injection.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit(**/package.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/package-lock.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/yarn.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/pnpm-lock.yaml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/bun.lockb)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/pubspec.yaml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/pyproject.toml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/requirements.txt)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/Pipfile)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/Pipfile.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/poetry.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/Cargo.toml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/Cargo.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/go.mod)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/go.sum)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/composer.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/composer.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/Gemfile)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit(**/Gemfile.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/package.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/package-lock.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/yarn.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/pnpm-lock.yaml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/bun.lockb)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/pubspec.yaml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/pyproject.toml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/requirements.txt)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/Pipfile)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/Pipfile.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/poetry.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/Cargo.toml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/Cargo.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/go.mod)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/go.sum)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/composer.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/composer.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/Gemfile)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit(**/Gemfile.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/package.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/package-lock.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/yarn.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/pnpm-lock.yaml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/bun.lockb)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/pubspec.yaml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/pyproject.toml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/requirements.txt)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/Pipfile)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/Pipfile.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/poetry.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/Cargo.toml)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/Cargo.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/go.mod)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/go.sum)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/composer.json)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/composer.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/Gemfile)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__claude-mcp-tools__easy_replace(**/Gemfile.lock)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/package-change.sh"
           }
         ]
       }

@@ -33,32 +33,33 @@ export const DeleteRoomSchema = z.object({
 });
 
 export const ListRoomsSchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where rooms will be listed. This determines the scope of the room search.'),
-  status: z.enum(['active', 'closed', 'all']).optional().describe('Optional status filter to show rooms with specific status. "active" shows only open rooms, "closed" shows only closed rooms, "all" shows all rooms. If not provided, defaults to showing all rooms.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
+  status: z.enum(['active', 'closed', 'all']).optional().default('active').describe('Status filter to show rooms with specific status. "active" shows only open rooms (default), "closed" shows only closed rooms, "all" shows all rooms.'),
   limit: z.number().default(20).describe('Maximum number of rooms to return. Defaults to 20. Use for pagination.'),
   offset: z.number().default(0).describe('Number of rooms to skip before returning results. Defaults to 0. Use for pagination.')
 });
 
 export const ListRoomMessagesSchema = z.object({
-  roomName: z.string().describe('Name of the communication room to retrieve messages from. The room must exist and be accessible.'),
+  roomId: z.string().optional().describe('ID of the communication room to retrieve messages from. Takes precedence over roomName if both provided.'),
+  roomName: z.string().optional().describe('Name of the communication room to retrieve messages from. Use roomId instead when possible.'),
   limit: z.number().default(50).describe('Maximum number of messages to return. Defaults to 50. Use for pagination and to control response size.'),
   offset: z.number().default(0).describe('Number of messages to skip before returning results. Defaults to 0. Use for pagination through message history.'),
   sinceTimestamp: z.string().optional().describe('Optional ISO timestamp string to only retrieve messages sent after this time. Useful for getting recent messages or continuing from a specific point in time.')
-});
+}).refine(data => data.roomId || data.roomName, { message: 'Either roomId or roomName must be provided' });
 
 export const CreateDelayedRoomSchema = z.object({
   agentId: z.string().describe('ID of the agent creating the coordination room. This agent will be automatically added to the room as a participant.'),
-  repositoryPath: z.string().describe('Absolute path to the repository where the room will be created. This determines the scope and context of the coordination room.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
   reason: z.string().describe('Reason or purpose for creating the coordination room. This will be included in the room description and initial message.'),
   participants: z.array(z.string()).optional().default([]).describe('Optional array of additional agent IDs or names to invite to the coordination room. The creating agent is automatically included.')
 });
 
 export const AnalyzeCoordinationPatternsSchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository to analyze for coordination patterns. This determines the scope of rooms and communication to analyze.')
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.')
 });
 
 export const BroadcastMessageToAgentsSchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where target agents are located. This determines the scope of agents to potentially message.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
   agentIds: z.array(z.string()).describe('Array of specific agent IDs to send the message to. Only agents in this list will receive the message.'),
   message: z.string().describe('The message content to broadcast to the specified agents. This should be clear and actionable.'),
   autoResume: z.boolean().default(true).describe('Whether to automatically resume dead agents before sending the message. If true, any agents that are not currently active will be resumed with their last session before message delivery. Defaults to true.'),

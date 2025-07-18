@@ -66,8 +66,8 @@ export const ExecutionPlanSchema = z.object({
     estimatedDuration: z.number(),
     riskFactors: z.array(z.string())
   }),
-  tasks: z.array(TaskBreakdownSchema),
-  taskDependencyGraph: z.record(z.array(z.string())),
+  objectives: z.array(TaskBreakdownSchema),
+  objectiveDependencyGraph: z.record(z.array(z.string())),
   criticalPath: z.array(z.string()),
   agents: z.array(AgentSpecificationSchema),
   agentCoordination: z.object({

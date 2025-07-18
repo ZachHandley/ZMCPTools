@@ -6,7 +6,7 @@ import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'driz
 // Entity types in the knowledge graph
 export const entityTypeSchema = z.enum([
   'agent',
-  'task',
+  'objective',
   'file',
   'function',
   'class',
@@ -39,12 +39,12 @@ export const relationshipTypeSchema = z.enum([
   'agent_collaborated_with',
   
   // Task relationships
-  'task_depends_on',
-  'task_contains',
-  'task_implements',
-  'task_tests',
-  'task_documents',
-  'task_fixes',
+  'objective_depends_on',
+  'objective_contains',
+  'objective_implements',
+  'objective_tests',
+  'objective_documents',
+  'objective_fixes',
   
   // Code relationships
   'imports',
@@ -99,7 +99,7 @@ export const relationshipPropertiesSchema = z.record(z.string(), z.unknown()).op
 export const knowledgeEntities = sqliteTable('knowledge_entities', {
   id: text('id').primaryKey(),
   repositoryPath: text('repositoryPath').notNull(),
-  entityType: text('entityType', { enum: ['agent', 'task', 'file', 'function', 'class', 'concept', 'error', 'solution', 'pattern', 'insight', 'decision', 'tool', 'repository', 'dependency', 'configuration', 'test', 'documentation', 'feature', 'bug', 'requirement', 'progress'] }).notNull(),
+  entityType: text('entityType', { enum: ['agent', 'objective', 'file', 'function', 'class', 'concept', 'error', 'solution', 'pattern', 'insight', 'decision', 'tool', 'repository', 'dependency', 'configuration', 'test', 'documentation', 'feature', 'bug', 'requirement', 'progress'] }).notNull(),
   name: text('name').notNull(),
   description: text('description'),
   
@@ -139,7 +139,7 @@ export const knowledgeRelationships = sqliteTable('knowledge_relationships', {
   // Relationship definition
   fromEntityId: text('fromEntityId').notNull(),
   toEntityId: text('toEntityId').notNull(),
-  relationshipType: text('relationshipType', { enum: ['agent_created', 'agent_discovered', 'agent_used', 'agent_solved', 'agent_worked_on', 'agent_collaborated_with', 'task_depends_on', 'task_contains', 'task_implements', 'task_tests', 'task_documents', 'task_fixes', 'imports', 'extends', 'implements', 'calls', 'references', 'defines', 'exports', 'inherits_from', 'overrides', 'error_caused_by', 'error_resolved_by', 'solution_applies_to', 'pattern_found_in', 'pattern_similar_to', 'relates_to', 'similar_to', 'depends_on', 'conflicts_with', 'enhances', 'replaces', 'derived_from', 'validates', 'discovered_during', 'learned_from', 'applied_to', 'generalized_from', 'specialized_to'] }).notNull(),
+  relationshipType: text('relationshipType', { enum: ['agent_created', 'agent_discovered', 'agent_used', 'agent_solved', 'agent_worked_on', 'agent_collaborated_with', 'objective_depends_on', 'objective_contains', 'objective_implements', 'objective_tests', 'objective_documents', 'objective_fixes', 'imports', 'extends', 'implements', 'calls', 'references', 'defines', 'exports', 'inherits_from', 'overrides', 'error_caused_by', 'error_resolved_by', 'solution_applies_to', 'pattern_found_in', 'pattern_similar_to', 'relates_to', 'similar_to', 'depends_on', 'conflicts_with', 'enhances', 'replaces', 'derived_from', 'validates', 'discovered_during', 'learned_from', 'applied_to', 'generalized_from', 'specialized_to'] }).notNull(),
   
   // Relationship properties
   properties: text('properties', { mode: 'json' }).$type<Record<string, unknown>>(),
@@ -266,7 +266,7 @@ export const updateKnowledgeInsightSchema = createUpdateSchema(knowledgeInsights
 export type KnowledgeEntity = {
   id: string;
   repositoryPath: string;
-  entityType: 'agent' | 'task' | 'file' | 'function' | 'class' | 'concept' | 'error' | 'solution' | 'pattern' | 'insight' | 'decision' | 'tool' | 'repository' | 'dependency' | 'configuration' | 'test' | 'documentation' | 'feature' | 'bug' | 'requirement' | 'progress';
+  entityType: 'agent' | 'objective' | 'file' | 'function' | 'class' | 'concept' | 'error' | 'solution' | 'pattern' | 'insight' | 'decision' | 'tool' | 'repository' | 'dependency' | 'configuration' | 'test' | 'documentation' | 'feature' | 'bug' | 'requirement' | 'progress';
   name: string;
   description?: string;
   embedding?: number[];
@@ -299,7 +299,7 @@ export type KnowledgeRelationship = {
   repositoryPath: string;
   fromEntityId: string;
   toEntityId: string;
-  relationshipType: 'agent_created' | 'agent_discovered' | 'agent_used' | 'agent_solved' | 'agent_worked_on' | 'agent_collaborated_with' | 'task_depends_on' | 'task_contains' | 'task_implements' | 'task_tests' | 'task_documents' | 'task_fixes' | 'imports' | 'extends' | 'implements' | 'calls' | 'references' | 'defines' | 'exports' | 'inherits_from' | 'overrides' | 'error_caused_by' | 'error_resolved_by' | 'solution_applies_to' | 'pattern_found_in' | 'pattern_similar_to' | 'relates_to' | 'similar_to' | 'depends_on' | 'conflicts_with' | 'enhances' | 'replaces' | 'derived_from' | 'validates' | 'discovered_during' | 'learned_from' | 'applied_to' | 'generalized_from' | 'specialized_to';
+  relationshipType: 'agent_created' | 'agent_discovered' | 'agent_used' | 'agent_solved' | 'agent_worked_on' | 'agent_collaborated_with' | 'objective_depends_on' | 'objective_contains' | 'objective_implements' | 'objective_tests' | 'objective_documents' | 'objective_fixes' | 'imports' | 'extends' | 'implements' | 'calls' | 'references' | 'defines' | 'exports' | 'inherits_from' | 'overrides' | 'error_caused_by' | 'error_resolved_by' | 'solution_applies_to' | 'pattern_found_in' | 'pattern_similar_to' | 'relates_to' | 'similar_to' | 'depends_on' | 'conflicts_with' | 'enhances' | 'replaces' | 'derived_from' | 'validates' | 'discovered_during' | 'learned_from' | 'applied_to' | 'generalized_from' | 'specialized_to';
   properties?: Record<string, unknown>;
   strength: number;
   confidence: number;
@@ -413,15 +413,15 @@ export const insightDetectionRules = {
   // Pattern detection rules
   patterns: {
     errorPattern: {
-      description: "Recurring error patterns across agents and tasks",
-      entityTypes: ['error', 'agent', 'task'],
+      description: "Recurring error patterns across agents and objectives",
+      entityTypes: ['error', 'agent', 'objective'],
       relationshipTypes: ['error_caused_by', 'agent_solved'],
       minOccurrences: 3,
       confidenceThreshold: 0.7
     },
     collaborationPattern: {
       description: "Effective agent collaboration patterns",
-      entityTypes: ['agent', 'task'],
+      entityTypes: ['agent', 'objective'],
       relationshipTypes: ['agent_collaborated_with', 'agent_worked_on'],
       minOccurrences: 2,
       confidenceThreshold: 0.6
@@ -439,8 +439,8 @@ export const insightDetectionRules = {
   correlations: {
     toolUsageCorrelation: {
       description: "Tools that are commonly used together",
-      entityTypes: ['tool', 'agent', 'task'],
-      relationshipTypes: ['agent_used', 'task_depends_on'],
+      entityTypes: ['tool', 'agent', 'objective'],
+      relationshipTypes: ['agent_used', 'objective_depends_on'],
       minCorrelation: 0.5
     },
     errorSolutionCorrelation: {

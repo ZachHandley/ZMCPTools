@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import type { TaskType, AgentStatus, MessageType, EntityType, RelationshipType } from './index.js';
+import type { ObjectiveType, AgentStatus, MessageType, EntityType, RelationshipType } from './index.js';
 
 // ===============================================
 // Progress Report Tool Request Schemas
@@ -13,12 +13,12 @@ import type { TaskType, AgentStatus, MessageType, EntityType, RelationshipType }
 
 export const ReportProgressSchema = z.object({
   agentId: z.string().describe("ID of the agent reporting progress. Must be a valid agent ID that exists in the system."),
-  repositoryPath: z.string().describe("Path to the repository or project directory. Can be relative (e.g., '.') or absolute path."),
-  progressType: z.enum(['status', 'task', 'milestone', 'error', 'completion']).describe("Type of progress being reported: 'status' for general agent status updates, 'task' for task-specific progress, 'milestone' for significant achievements, 'error' for reporting errors/failures, 'completion' for task completion."),
+  repositoryPath: z.string().optional().describe("Optional repository path. If not provided, uses the agent's current working directory."),
+  progressType: z.enum(['status', 'objective', 'milestone', 'error', 'completion']).describe("Type of progress being reported: 'status' for general agent status updates, 'objective' for objective-specific progress, 'milestone' for significant achievements, 'error' for reporting errors/failures, 'completion' for objective completion."),
   message: z.string().describe("Human-readable progress message describing what the agent is doing or has accomplished. This message will be displayed in logs and can be broadcast to rooms."),
-  taskId: z.string().optional().describe("Optional ID of the specific task being reported on. Required when progressType is 'task', 'error', or 'completion'. Used to update task status and progress."),
-  progressPercentage: z.number().optional().describe("Optional progress percentage (0-100) for task completion. Used with progressType 'task' to track completion progress. Will be validated and capped to 0-100 range."),
-  results: z.record(z.string(), z.string()).optional().describe("Optional key-value pairs of task results or metadata. Used with progressType 'completion' to store task outcomes and artifacts."),
+  objectiveId: z.string().optional().describe("Optional ID of the specific objective being reported on. Required when progressType is 'objective', 'error', or 'completion'. Used to update objective status and progress."),
+  progressPercentage: z.number().optional().describe("Optional progress percentage (0-100) for objective completion. Used with progressType 'objective' to track completion progress. Will be validated and capped to 0-100 range."),
+  results: z.record(z.string(), z.string()).optional().describe("Optional key-value pairs of objective results or metadata. Used with progressType 'completion' to store objective outcomes and artifacts."),
   error: z.string().optional().describe("Optional error message when progressType is 'error'. Provides detailed error information for debugging and failure analysis."),
   roomId: z.string().optional().describe("Optional room ID to broadcast progress to. If not provided, will use the agent's assigned room from metadata."),
   broadcastToRoom: z.boolean().optional().describe("Whether to broadcast this progress update to the agent's assigned room. Defaults to true. Set to false for internal progress tracking only.")

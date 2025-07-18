@@ -2,7 +2,9 @@ import type { McpTool } from '../schemas/tools/index.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { DatabaseManager } from '../database/index.js';
-import { PlanRepository, TaskRepository } from '../repositories/index.js';
+import { PlanRepository, ObjectiveRepository } from '../repositories/index.js';
+import { SequentialPlanningService } from '../services/SequentialPlanningService.js';
+import type { ObjectiveComplexityAnalysis } from '../services/ObjectiveComplexityAnalyzer.js';
 import { ulid } from 'ulidx';
 
 // Import centralized request schemas (simplified)
@@ -41,44 +43,46 @@ import {
   type UpdatePlanResponse
 } from '../schemas/tools/plans.js';
 
-import type { NewPlan, TaskType } from '../schemas/index.js';
+import type { NewPlan, ObjectiveType, SectionType } from '../schemas/index.js';
 
 /**
  * STREAMLINED Plan Tools - 4 essential tools only
- * Plans are high-level orchestration templates that create Tasks for execution
+ * Plans are high-level orchestration templates that create Objectives for execution
  */
 export class PlanTools {
   private planRepository: PlanRepository;
-  private taskRepository: TaskRepository;
+  private objectiveRepository: ObjectiveRepository;
+  private sequentialPlanningService: SequentialPlanningService;
 
-  constructor(private db: DatabaseManager, repositoryPath: string) {
+  constructor(private db: DatabaseManager, private repositoryPath: string) {
     this.planRepository = new PlanRepository(db);
-    this.taskRepository = new TaskRepository(db);
+    this.objectiveRepository = new ObjectiveRepository(db);
+    this.sequentialPlanningService = new SequentialPlanningService(db);
   }
 
   /**
    * Get MCP tools for plan functionality - STREAMLINED to 6 essential tools
-   * Plans are high-level orchestration templates that create Tasks for execution
+   * Plans are high-level orchestration templates that create Objectives for execution
    */
   getTools(): McpTool[] {
     return [
       {
         name: 'create_execution_plan',
-        description: 'Create a high-level execution plan that generates coordinated Tasks for implementation',
+        description: 'Create a high-level execution plan that generates coordinated Objectives for implementation',
         inputSchema: zodToJsonSchema(GeneratePlanFromObjectiveSchema),
         outputSchema: zodToJsonSchema(GeneratePlanFromObjectiveResponseSchema),
         handler: this.generatePlanFromObjective.bind(this)
       },
       {
         name: 'get_execution_plan',
-        description: 'Get an execution plan with progress derived from linked Tasks',
+        description: 'Get an execution plan with progress derived from linked Objectives',
         inputSchema: zodToJsonSchema(GetPlanSchema),
         outputSchema: zodToJsonSchema(GetPlanResponseSchema),
         handler: this.getPlan.bind(this)
       },
       {
         name: 'execute_with_plan',
-        description: 'Execute a plan by creating Tasks and spawning coordinated agents',
+        description: 'Execute a plan by creating Objectives and spawning coordinated agents',
         inputSchema: zodToJsonSchema(GetPlanSchema),
         outputSchema: zodToJsonSchema(CreatePlanResponseSchema),
         handler: this.executeWithPlan.bind(this)
@@ -108,17 +112,52 @@ export class PlanTools {
   }
 
   /**
-   * Generate a plan from an objective using simplified templates
+   * Generate a plan from an objective using intelligent sequential planning
    */
   async generatePlanFromObjective(request: GeneratePlanFromObjectiveRequest): Promise<GeneratePlanFromObjectiveResponse> {
     try {
-      // Generate simplified sections with task templates instead of todos
-      const sections = this.generateBasicPlanSections(request.objective);
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = request.repositoryPath || this.repositoryPath;
+      
+      // Use SequentialPlanningService for intelligent plan generation
+      const planningResult = await this.sequentialPlanningService.createExecutionPlan({
+        objective: request.objective,
+        repositoryPath: repoPath,
+        foundationSessionId: undefined, // Not needed for plan generation
+        planningDepth: 'detailed',
+        includeRiskAnalysis: true,
+        includeResourceEstimation: true,
+        constraints: request.constraints ? [request.constraints] : []
+      });
+
+      if (!planningResult.success || !planningResult.executionPlan) {
+        return createErrorResponse('Failed to generate intelligent plan', planningResult.error || 'Unknown error');
+      }
+
+      // Convert SequentialPlanningService output to our Plan format
+      const sections = planningResult.executionPlan.objectives.map((objective, index) => ({
+        id: ulid(),
+        type: this.mapObjectiveTypeToSectionType(objective.objectiveType) as SectionType,
+        title: objective.title,
+        description: objective.description,
+        agentResponsibility: objective.assignedAgentType || 'general',
+        estimatedHours: objective.estimatedDuration ? this.parseHours(objective.estimatedDuration) : 2,
+        priority: objective.priority || (index + 1),
+        prerequisites: objective.dependencies || [],
+        objectiveTemplates: [{
+          description: objective.description,
+          objectiveType: objective.objectiveType,
+          estimatedHours: objective.estimatedDuration ? this.parseHours(objective.estimatedDuration) : 2,
+          dependencies: objective.dependencies || []
+        }],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }));
       
       const planData: Omit<NewPlan, 'id' | 'createdAt' | 'updatedAt'> = {
-        repositoryPath: request.repositoryPath,
+        repositoryPath: repoPath,
         title: request.title,
-        description: `Auto-generated plan for: ${request.objective}`,
+        description: planningResult.executionPlan.planningApproach || `Intelligent plan for: ${request.objective}`,
         objectives: request.objective,
         constraints: request.constraints,
         priority: request.priority,
@@ -126,7 +165,7 @@ export class PlanTools {
         sections,
         metadata: {
           estimatedTotalHours: sections.reduce((sum, s) => sum + (s.estimatedHours || 0), 0),
-          riskLevel: 'medium',
+          riskLevel: this.calculateRiskLevel(planningResult.executionPlan.complexityAnalysis),
           technologies: []
         },
         status: 'draft'
@@ -134,15 +173,18 @@ export class PlanTools {
 
       const plan = await this.planRepository.createPlan(planData);
       
-      const totalTaskTemplates = plan.sections.reduce((sum, section) => sum + (section.taskTemplates?.length || 0), 0);
+      const totalObjectiveTemplates = plan.sections.reduce((sum, section) => sum + (section.objectiveTemplates?.length || 0), 0);
       const estimatedHours = plan.metadata.estimatedTotalHours;
 
-      return createSuccessResponse('Plan generated successfully from objective', {
+      return createSuccessResponse('Intelligent plan generated successfully from objective', {
         planId: plan.id,
         title: plan.title,
         sectionsGenerated: plan.sections.length,
-        totalTodos: totalTaskTemplates, // Kept same field name for compatibility
-        estimatedHours
+        totalTodos: totalObjectiveTemplates,
+        estimatedHours,
+        complexityLevel: planningResult.executionPlan.complexityAnalysis?.complexityLevel,
+        riskLevel: plan.metadata.riskLevel,
+        planningInsights: planningResult.planningInsights?.slice(0, 3) // Top 3 insights
       });
     } catch (error: any) {
       return createErrorResponse(`Failed to generate plan from objective`, error.message);
@@ -160,7 +202,7 @@ export class PlanTools {
       }
 
       // Get progress from linked Tasks instead of plan todos
-      const linkedTasks = await this.taskRepository.findByRepositoryPath(plan.repositoryPath, {
+      const linkedTasks = await this.objectiveRepository.findByRepositoryPath(plan.repositoryPath, {
         // Filter tasks that belong to this plan
       });
       
@@ -203,11 +245,11 @@ export class PlanTools {
       // Create Tasks from plan sections (this is where the magic happens)
       const createdTasks = [];
       for (const section of plan.sections) {
-        for (const taskTemplate of section.taskTemplates || []) {
-          const task = await this.taskRepository.create({
+        for (const taskTemplate of section.objectiveTemplates || []) {
+          const task = await this.objectiveRepository.create({
             id: ulid(),
             repositoryPath: plan.repositoryPath,
-            taskType: (taskTemplate.taskType || 'feature') as TaskType,
+            objectiveType: (taskTemplate.objectiveType || 'feature') as ObjectiveType,
             status: 'pending',
             description: `${section.title}: ${taskTemplate.description}`,
             requirements: {
@@ -300,10 +342,10 @@ export class PlanTools {
       // Handle status-specific updates
       if (request.updates.status) {
         if (request.updates.status === 'in_progress' && !plan.startedAt) {
-          updateData.startedAt = new Date().toISOString();
+          (updateData as any).startedAt = new Date().toISOString();
           updatedFields.push('startedAt');
         } else if (request.updates.status === 'completed') {
-          updateData.completedAt = new Date().toISOString();
+          (updateData as any).completedAt = new Date().toISOString();
           updatedFields.push('completedAt');
         }
       }
@@ -327,7 +369,59 @@ export class PlanTools {
   }
 
   /**
-   * Generate basic plan sections from objective - simplified to create task templates
+   * Calculate risk level based on complexity analysis
+   */
+  private calculateRiskLevel(complexityAnalysis: ObjectiveComplexityAnalysis): 'low' | 'medium' | 'high' {
+    if (complexityAnalysis.complexityLevel === 'complex' || complexityAnalysis.riskFactors.length > 3) {
+      return 'high';
+    } else if (complexityAnalysis.complexityLevel === 'moderate' || complexityAnalysis.riskFactors.length > 1) {
+      return 'medium';
+    }
+    return 'low';
+  }
+
+  /**
+   * Map task type to section type
+   */
+  private mapObjectiveTypeToSectionType(taskType: string): string {
+    const typeMap: Record<string, string> = {
+      'analysis': 'analysis',
+      'setup': 'setup',
+      'feature': 'backend',
+      'bug_fix': 'maintenance',
+      'refactor': 'maintenance',
+      'documentation': 'documentation',
+      'testing': 'testing',
+      'deployment': 'devops',
+      'optimization': 'performance',
+      'maintenance': 'maintenance'
+    };
+    return typeMap[taskType] || 'other';
+  }
+
+  /**
+   * Parse duration string to hours
+   */
+  private parseHours(duration: string | number): number {
+    if (typeof duration === 'number') return duration;
+    if (typeof duration !== 'string') return 2; // Default 2 hours
+    const match = duration.match(/(\d+(?:\.\d+)?)\s*(hour|hr|h|day|d|week|w|minute|min|m)/i);
+    if (!match) return 2; // Default 2 hours
+    
+    const value = parseFloat(match[1]);
+    const unit = match[2].toLowerCase();
+    
+    switch (unit) {
+      case 'minute': case 'min': case 'm': return Math.max(0.1, value / 60);
+      case 'hour': case 'hr': case 'h': return value;
+      case 'day': case 'd': return value * 8;
+      case 'week': case 'w': return value * 40;
+      default: return value;
+    }
+  }
+
+  /**
+   * Generate basic plan sections from objective - simplified to create task templates (FALLBACK)
    */
   private generateBasicPlanSections(objective: string): any[] {
     const now = new Date().toISOString();
@@ -342,15 +436,15 @@ export class PlanTools {
         estimatedHours: 4,
         priority: 1,
         prerequisites: [],
-        taskTemplates: [
+        objectiveTemplates: [
           {
             description: 'Analyze current system and requirements',
-            taskType: 'analysis' as TaskType,
+            objectiveType: 'analysis' as ObjectiveType,
             estimatedHours: 2
           },
           {
             description: 'Define technical specifications',
-            taskType: 'analysis' as TaskType,
+            objectiveType: 'analysis' as ObjectiveType,
             estimatedHours: 2
           }
         ],
@@ -366,20 +460,20 @@ export class PlanTools {
         estimatedHours: 8,
         priority: 2,
         prerequisites: [],
-        taskTemplates: [
+        objectiveTemplates: [
           {
             description: 'Set up database schema',
-            taskType: 'setup' as TaskType,
+            objectiveType: 'setup' as ObjectiveType,
             estimatedHours: 2
           },
           {
             description: 'Implement API endpoints',
-            taskType: 'feature' as TaskType,
+            objectiveType: 'feature' as ObjectiveType,
             estimatedHours: 4
           },
           {
             description: 'Add business logic',
-            taskType: 'feature' as TaskType,
+            objectiveType: 'feature' as ObjectiveType,
             estimatedHours: 2
           }
         ],
@@ -395,20 +489,20 @@ export class PlanTools {
         estimatedHours: 6,
         priority: 3,
         prerequisites: [],
-        taskTemplates: [
+        objectiveTemplates: [
           {
             description: 'Write unit tests',
-            taskType: 'testing' as TaskType,
+            objectiveType: 'testing' as ObjectiveType,
             estimatedHours: 3
           },
           {
             description: 'Create integration tests',
-            taskType: 'testing' as TaskType,
+            objectiveType: 'testing' as ObjectiveType,
             estimatedHours: 2
           },
           {
             description: 'Perform end-to-end testing',
-            taskType: 'testing' as TaskType,
+            objectiveType: 'testing' as ObjectiveType,
             estimatedHours: 1
           }
         ],

@@ -10,8 +10,8 @@ import { pathResolver } from '../utils/pathResolver.js';
 import {
   allTables,
   agentSessions,
-  tasks,
-  taskDependencies,
+  objectives,
+  objectiveDependencies,
   memories,
   chatRooms,
   chatMessages,
@@ -21,6 +21,7 @@ import {
   websitePages,
   errorLogs,
   toolCallLogs,
+  projects,
 } from '../schemas/index.js';
 
 export interface DatabaseConfig {

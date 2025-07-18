@@ -55,8 +55,10 @@ export class CommunicationTools {
   private agentService: AgentService;
   private communicationService: CommunicationService;
   private knowledgeGraphService: KnowledgeGraphService;
+  private repositoryPath: string;
 
   constructor(private db: DatabaseManager, repositoryPath: string) {
+    this.repositoryPath = repositoryPath;
     this.agentService = new AgentService(db);
     this.communicationService = new CommunicationService(db);
     // Initialize KnowledgeGraphService with VectorSearchService
@@ -107,35 +109,35 @@ export class CommunicationTools {
       },
       {
         name: 'close_room',
-        description: 'Close a communication room (soft delete - marks as closed but keeps data)',
+        description: 'Close communication room (soft delete)',
         inputSchema: zodToJsonSchema(CloseRoomSchema),
         outputSchema: zodToJsonSchema(CloseRoomResponseSchema),
         handler: this.closeRoom.bind(this)
       },
       {
         name: 'delete_room',
-        description: 'Permanently delete a communication room and all its messages',
+        description: 'Permanently delete communication room and messages',
         inputSchema: zodToJsonSchema(DeleteRoomSchema),
         outputSchema: zodToJsonSchema(DeleteRoomResponseSchema),
         handler: this.deleteRoom.bind(this)
       },
       {
         name: 'list_rooms',
-        description: 'List communication rooms with filtering and pagination',
+        description: 'List communication rooms with filtering',
         inputSchema: zodToJsonSchema(ListRoomsSchema),
         outputSchema: zodToJsonSchema(ListRoomsResponseSchema),
         handler: this.listRooms.bind(this)
       },
       {
         name: 'list_room_messages',
-        description: 'List messages from a specific room with pagination',
+        description: 'List messages from specific room',
         inputSchema: zodToJsonSchema(ListRoomMessagesSchema),
         outputSchema: zodToJsonSchema(ListRoomMessagesResponseSchema),
         handler: this.listRoomMessages.bind(this)
       },
       {
         name: 'create_delayed_room',
-        description: 'Create a delayed room for coordination when agents realize they need it',
+        description: 'Create coordination room for agent communication',
         inputSchema: zodToJsonSchema(CreateDelayedRoomSchema),
         outputSchema: zodToJsonSchema(CreateDelayedRoomResponseSchema),
         handler: this.createDelayedRoom.bind(this)
@@ -149,7 +151,7 @@ export class CommunicationTools {
       },
       {
         name: 'broadcast_message_to_agents',
-        description: 'Broadcast a message to multiple agents with auto-resume functionality',
+        description: 'Send message to multiple agents',
         inputSchema: zodToJsonSchema(BroadcastMessageToAgentsSchema),
         outputSchema: zodToJsonSchema(BroadcastMessageToAgentsResponseSchema),
         handler: this.broadcastMessageToAgents.bind(this)
@@ -479,7 +481,9 @@ export class CommunicationTools {
     const startTime = performance.now();
     
     try {
-      const allRooms = await this.communicationService.listRooms(repositoryPath);
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
+      const allRooms = await this.communicationService.listRooms(repoPath);
       
       // Filter by status
       let filteredRooms = allRooms;
@@ -536,28 +540,52 @@ export class CommunicationTools {
   async listRoomMessages(args: any): Promise<ListRoomMessagesResponse> {
     // Map snake_case to camelCase for compatibility
     const normalizedArgs = {
+      roomId: args.roomId || args.room_id,
       roomName: args.roomName || args.room_name,
       limit: args.limit,
       offset: args.offset,
       sinceTimestamp: args.sinceTimestamp || args.since_timestamp
     };
     
-    const { roomName, limit = 50, offset = 0, sinceTimestamp } = ListRoomMessagesSchema.parse(normalizedArgs);
+    const { roomId, roomName, limit = 50, offset = 0, sinceTimestamp } = ListRoomMessagesSchema.parse(normalizedArgs);
     const startTime = performance.now();
     
     try {
-      const room = await this.communicationService.getRoom(roomName);
-      if (!room) {
+      let room;
+      
+      // Prefer roomId if provided
+      if (roomId) {
+        room = await this.communicationService.getRoomById(roomId);
+        if (!room) {
+          const executionTime = performance.now() - startTime;
+          return createErrorResponse(
+            `Room with ID '${roomId}' not found`,
+            `Room with ID '${roomId}' not found`,
+            'ROOM_NOT_FOUND'
+          ) as ListRoomMessagesResponse;
+        }
+      } else if (roomName) {
+        room = await this.communicationService.getRoom(roomName);
+        if (!room) {
+          const executionTime = performance.now() - startTime;
+          return createErrorResponse(
+            `Room '${roomName}' not found`,
+            `Room '${roomName}' not found`,
+            'ROOM_NOT_FOUND'
+          ) as ListRoomMessagesResponse;
+        }
+      } else {
+        // This shouldn't happen due to schema validation, but handle it defensively
         const executionTime = performance.now() - startTime;
         return createErrorResponse(
-          `Room '${roomName}' not found`,
-          `Room '${roomName}' not found`,
-          'ROOM_NOT_FOUND'
+          'Either roomId or roomName must be provided',
+          'Either roomId or roomName must be provided',
+          'INVALID_REQUEST'
         ) as ListRoomMessagesResponse;
       }
 
       const since = sinceTimestamp ? new Date(sinceTimestamp) : undefined;
-      const messages = await this.communicationService.getMessages(roomName, limit + offset, since);
+      const messages = await this.communicationService.getMessages(room.name, limit + offset, since);
       
       // Apply offset manually since the service doesn't support it
       const paginatedMessages = messages.slice(offset, offset + limit);
@@ -565,10 +593,10 @@ export class CommunicationTools {
       const executionTime = performance.now() - startTime;
       
       return createSuccessResponse(
-        `Retrieved ${paginatedMessages.length} messages from room '${roomName}'`,
+        `Retrieved ${paginatedMessages.length} messages from room '${room.name}'`,
         {
           room_id: room.id,
-          room_name: roomName,
+          room_name: room.name,
           messages: paginatedMessages.map(msg => ({
             id: msg.id,
             agent_name: msg.agentName,
@@ -614,15 +642,28 @@ export class CommunicationTools {
     const startTime = performance.now();
     
     try {
-      // Generate room name based on reason and timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const roomName = `coordination-${reason.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}-${timestamp}`;
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
+      // Generate room name based on reason without timestamp
+      const sanitizedReason = reason.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+      let roomName = `coordination-${sanitizedReason}`;
+      
+      // Check if room with this name already exists
+      let roomExists = await this.communicationService.getRoom(roomName);
+      let counter = 1;
+      
+      // Add counter suffix only if needed
+      while (roomExists) {
+        roomName = `coordination-${sanitizedReason}-${counter}`;
+        roomExists = await this.communicationService.getRoom(roomName);
+        counter++;
+      }
       
       // Create the room
       const room = await this.communicationService.createRoom({
         name: roomName,
         description: `Coordination room created by ${agentId} for: ${reason}`,
-        repositoryPath,
+        repositoryPath: repoPath,
         metadata: { type: 'coordination', participants: [...participants, agentId] }
       });
       
@@ -683,8 +724,10 @@ export class CommunicationTools {
     const startTime = performance.now();
     
     try {
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = repositoryPath || this.repositoryPath;
       // Simple analysis of room usage patterns
-      const rooms = await this.communicationService.listRooms(repositoryPath);
+      const rooms = await this.communicationService.listRooms(repoPath);
       const totalRooms = rooms.length;
       const activeRooms = rooms.filter(room => room.roomMetadata?.status !== 'closed').length;
       
@@ -699,7 +742,7 @@ export class CommunicationTools {
       const executionTime = performance.now() - startTime;
       
       return createSuccessResponse(
-        `Coordination analysis complete for ${repositoryPath}`,
+        `Coordination analysis complete for ${repoPath}`,
         {
           total_rooms: totalRooms,
           active_rooms: activeRooms,
@@ -736,9 +779,11 @@ export class CommunicationTools {
     const startTime = performance.now();
     
     try {
+      // Use provided repositoryPath or fall back to the stored one
+      const repoPath = validatedArgs.repositoryPath || this.repositoryPath;
       // Use AgentService to broadcast the message
       const results = await this.agentService.broadcastMessageToAgents(
-        validatedArgs.repositoryPath,
+        repoPath,
         validatedArgs.agentIds,
         validatedArgs.message,
         validatedArgs.autoResume,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { type TaskType, type AgentStatus, type EntityType, taskTypeSchema, entityTypeSchema, agentStatusSchema } from '../index.js';
+import { type ObjectiveType, type AgentStatus, type EntityType, objectiveTypeSchema, entityTypeSchema, agentStatusSchema } from '../index.js';
 
 // ===============================================
 // Agent Orchestration Tool Request Schemas
@@ -8,14 +8,14 @@ import { type TaskType, type AgentStatus, type EntityType, taskTypeSchema, entit
 export const OrchestrationObjectiveSchema = z.object({
   title: z.string().describe('Title for the orchestration objective - should be descriptive and concise'),
   objective: z.string().describe('Detailed description of the objective to be orchestrated by the architect agent. This should be a clear, comprehensive statement of what needs to be accomplished across multiple specialized agents.'),
-  repositoryPath: z.string().describe('Absolute path to the repository where the orchestration will take place. This is the working directory for all spawned agents.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
   foundationSessionId: z.string().optional().describe('Optional session ID for cost optimization. When provided, all spawned agents will share this session context, reducing token costs by 85-90% through shared conversation history.')
 });
 
 export const SpawnAgentSchema = z.object({
   agentType: z.string().describe('Type of specialized agent to spawn (e.g., "backend", "frontend", "testing", "documentation", "devops", "researcher"). This determines the agent\'s role-specific instructions and capabilities.'),
-  repositoryPath: z.string().describe('Absolute path to the repository where the agent will operate. This is the working directory for all agent operations.'),
-  taskDescription: z.string().describe('Detailed description of the specific task or responsibility this agent should handle. Should be clear, actionable, and include any important context or requirements.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
+  objectiveDescription: z.string().describe('Detailed description of the specific objective or responsibility this agent should handle. Should be clear, actionable, and include any important context or requirements.'),
   capabilities: z.array(z.string()).optional().default(['ALL_TOOLS']).describe('Array of capabilities or tools the agent should have access to. Defaults to "ALL_TOOLS" which grants full access to all available tools including file operations, code analysis, web browsing, and coordination tools.'),
   dependsOn: z.array(z.string()).optional().default([]).describe('Array of agent IDs that this agent depends on. The agent will only be spawned after all dependencies are satisfied (agents exist and are active/completed).'),
   metadata: z.record(z.string(), z.any()).optional().default({}).describe('Optional metadata object for storing additional agent configuration, context, or coordination information.'),
@@ -23,20 +23,20 @@ export const SpawnAgentSchema = z.object({
   roomId: z.string().optional().describe('Optional existing room ID to assign the agent to. If provided, the agent will join this room instead of creating a new one.')
 });
 
-export const CreateTaskSchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where the task will be created. This determines the context and scope of the task.'),
-  taskType: taskTypeSchema.describe('Type of task being created (e.g., "feature", "bug", "enhancement", "documentation", "testing"). This helps categorize and prioritize the task.'),
-  title: z.string().describe('Short, descriptive title for the task that summarizes what needs to be done.'),
-  description: z.string().describe('Detailed description of the task including requirements, context, and expected outcomes. Should be comprehensive enough for an agent to understand and execute.'),
-  requirements: z.record(z.string(), z.any()).optional().describe('Optional object containing specific requirements, configuration, or parameters for the task. Can include priority, estimated duration, assigned agent ID, and other task-specific data.'),
-  dependencies: z.array(z.string()).optional().describe('Optional array of task IDs that this task depends on. The task will only be eligible for assignment after all dependencies are completed.')
+export const CreateObjectiveSchema = z.object({
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
+  objectiveType: objectiveTypeSchema.describe('Type of objective being created (e.g., "feature", "bug_fix", "refactor", "documentation", "testing"). This helps categorize and prioritize the objective.'),
+  title: z.string().describe('Short, descriptive title for the objective that summarizes what needs to be done.'),
+  description: z.string().describe('Detailed description of the objective including requirements, context, and expected outcomes. Should be comprehensive enough for an agent to understand and execute.'),
+  requirements: z.record(z.string(), z.any()).optional().describe('Optional object containing specific requirements, configuration, or parameters for the objective. Can include priority, estimated duration, assigned agent ID, and other objective-specific data.'),
+  dependencies: z.array(z.string()).optional().describe('Optional array of objective IDs that this objective depends on. The objective will only be eligible for assignment after all dependencies are completed.')
 });
 
 
 
 export const ListAgentsSchema = z.object({
-  repositoryPath: z.string().describe('Absolute path to the repository where agents will be listed. This determines the scope of the agent search.'),
-  status: agentStatusSchema.optional().describe('Optional status filter to only show agents with specific status (e.g., "active", "completed", "failed", "idle"). If not provided, will return agents of all statuses.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
+  status: agentStatusSchema.optional().default('active').describe('Status filter to show agents with specific status. Defaults to "active" to show only active agents. Use other values like "completed", "failed", "idle" or omit for all statuses.'),
   limit: z.number().default(5).describe('Maximum number of agents to return. Defaults to 5. Use for pagination.'),
   offset: z.number().default(0).describe('Number of agents to skip before returning results. Defaults to 0. Use for pagination.')
 });
@@ -60,7 +60,7 @@ export const MonitorAgentsSchema = z.object({
 export const StructuredOrchestrationSchema = z.object({
   title: z.string().describe('Title for the structured orchestration - should be descriptive and concise'),
   objective: z.string().describe('Detailed description of the objective to be orchestrated using structured phased workflow. This should be a clear, comprehensive statement of what needs to be accomplished.'),
-  repositoryPath: z.string().describe('Absolute path to the repository where the orchestration will take place. This is the working directory for all spawned agents.'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
   foundationSessionId: z.string().optional().describe('Optional session ID for cost optimization. When provided, all spawned agents will share this session context, reducing token costs by 85-90% through shared conversation history.'),
   maxDuration: z.number().optional().describe('Maximum duration in minutes for the orchestration. Defaults to 60 minutes. The orchestration will be cancelled if it exceeds this duration.'),
   enableProgressTracking: z.boolean().optional().default(true).describe('Whether to enable detailed progress tracking and real-time updates. Defaults to true.'),
@@ -69,15 +69,15 @@ export const StructuredOrchestrationSchema = z.object({
 
 export const ContinueAgentSessionSchema = z.object({
   agentId: z.string().describe('ID of the agent whose session should be continued. This agent must exist and have a stored conversation session ID.'),
-  additionalInstructions: z.string().optional().describe('Optional additional instructions to provide to the agent when resuming the session. These will be appended to the agent\'s original task and context.'),
-  newTaskDescription: z.string().optional().describe('Optional new task description to replace the agent\'s current task. If provided, this will become the agent\'s new primary objective.'),
+  additionalInstructions: z.string().optional().describe('Optional additional instructions to provide to the agent when resuming the session. These will be appended to the agent\'s original objective and context.'),
+  newObjectiveDescription: z.string().optional().describe('Optional new objective description to replace the agent\'s current objective. If provided, this will become the agent\'s new primary objective.'),
   preserveContext: z.boolean().default(true).describe('Whether to preserve the agent\'s conversation context when continuing the session. If true, the agent will resume with all previous conversation history. If false, starts a fresh conversation with the stored session ID.'),
   updateMetadata: z.record(z.string(), z.any()).optional().describe('Optional metadata updates to apply to the agent when continuing the session. This can include new configuration, status updates, or coordination information.')
 });
 
 export type OrchestrationObjectiveInput = z.infer<typeof OrchestrationObjectiveSchema>;
 export type SpawnAgentInput = z.infer<typeof SpawnAgentSchema>;
-export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
+export type CreateObjectiveInput = z.infer<typeof CreateObjectiveSchema>;
 export type ListAgentsInput = z.infer<typeof ListAgentsSchema>;
 export type TerminateAgentInput = z.infer<typeof TerminateAgentSchema>;
 export type MonitorAgentsInput = z.infer<typeof MonitorAgentsSchema>;
@@ -98,8 +98,8 @@ export const OrchestrationObjectiveResponseSchema = z.object({
     architect_agent_id: z.string().describe('Unique identifier of the spawned architect agent responsible for coordinating the multi-agent objective.'),
     room_name: z.string().describe('Name of the created coordination room where all agents will communicate and coordinate their work.'),
     objective: z.string().describe('The original objective description that was passed to the architect agent for orchestration.'),
-    master_task_id: z.string().describe('ID of the master task created for this orchestration, which serves as the root task for all sub-tasks.')
-  }).optional().describe('Orchestration details returned when successful, containing architect agent info, coordination room, and master task details.')
+    master_objective_id: z.string().describe('ID of the master objective created for this orchestration, which serves as the root objective for all sub-objectives.')
+  }).optional().describe('Orchestration details returned when successful, containing architect agent info, coordination room, and master objective details.')
 });
 
 // Spawn Agent Response
@@ -116,20 +116,20 @@ export const SpawnAgentResponseSchema = z.object({
   }).optional().describe('Agent spawn details returned when successful, containing agent identifier, type, process info, and capabilities.')
 });
 
-// Create Task Response
-export const CreateTaskResponseSchema = z.object({
-  success: z.boolean().describe('Whether the task was successfully created in the system. True if task was stored and is ready for assignment.'),
-  message: z.string().describe('Human-readable message describing the task creation result, including task ID and confirmation or error details.'),
-  timestamp: z.string().describe('ISO timestamp string indicating when the task was created.'),
-  execution_time_ms: z.number().optional().describe('Time taken to create the task in milliseconds, including database operations and dependency setup.'),
+// Create Objective Response
+export const CreateObjectiveResponseSchema = z.object({
+  success: z.boolean().describe('Whether the objective was successfully created in the system. True if objective was stored and is ready for assignment.'),
+  message: z.string().describe('Human-readable message describing the objective creation result, including objective ID and confirmation or error details.'),
+  timestamp: z.string().describe('ISO timestamp string indicating when the objective was created.'),
+  execution_time_ms: z.number().optional().describe('Time taken to create the objective in milliseconds, including database operations and dependency setup.'),
   data: z.object({
-    task_id: z.string().describe('Unique identifier of the created task, used for assignment, tracking, and updates.'),
-    task_type: z.string().describe('Type of task that was created (e.g., "feature", "bug", "enhancement", "documentation", "testing").'),
-    status: z.string().describe('Current status of the task (typically "pending" for newly created tasks).'),
-    priority: z.number().describe('Priority level of the task (1-10 scale, where 10 is highest priority).'),
-    estimated_duration: z.number().optional().describe('Estimated time to complete the task in minutes, if provided during creation.'),
-    dependencies: z.array(z.string()).describe('List of task IDs that this task depends on. Task will only be eligible for assignment after dependencies are completed.')
-  }).optional().describe('Task creation details returned when successful, containing task metadata, priority, and dependency information.')
+    objective_id: z.string().describe('Unique identifier of the created objective, used for assignment, tracking, and updates.'),
+    objective_type: z.string().describe('Type of objective that was created (e.g., "feature", "bug_fix", "refactor", "documentation", "testing").'),
+    status: z.string().describe('Current status of the objective (typically "pending" for newly created objectives).'),
+    priority: z.number().describe('Priority level of the objective (1-10 scale, where 10 is highest priority).'),
+    estimated_duration: z.number().optional().describe('Estimated time to complete the objective in minutes, if provided during creation.'),
+    dependencies: z.array(z.string()).describe('List of objective IDs that this objective depends on. Objective will only be eligible for assignment after dependencies are completed.')
+  }).optional().describe('Objective creation details returned when successful, containing objective metadata, priority, and dependency information.')
 });
 
 
@@ -201,9 +201,9 @@ export const StructuredOrchestrationResponseSchema = z.object({
     recommended_model: z.string().describe('AI model recommended and used for complex phases ("claude-3-7-sonnet-latest", "claude-sonnet-4-0", or "claude-opus-4-0").'),
     phases_completed: z.array(z.string()).describe('List of workflow phases that were completed successfully (e.g., ["research", "plan", "execute"]).'),
     spawned_agents: z.array(z.string()).describe('List of agent IDs that were spawned during the orchestration.'),
-    created_tasks: z.array(z.string()).describe('List of task IDs that were created during the orchestration.'),
+    created_objectives: z.array(z.string()).describe('List of objective IDs that were created during the orchestration.'),
     room_name: z.string().optional().describe('Name of the coordination room created for agent communication.'),
-    master_task_id: z.string().optional().describe('ID of the master task created for this orchestration.'),
+    master_objective_id: z.string().optional().describe('ID of the master objective created for this orchestration.'),
     final_results: z.any().optional().describe('Final results and outputs from each completed phase.'),
     total_duration: z.number().describe('Total duration of the orchestration in milliseconds.'),
     progress: z.number().describe('Final progress percentage (0-100).')
@@ -224,13 +224,13 @@ export const ContinueAgentSessionResponseSchema = z.object({
     previous_status: z.string().describe('The agent\'s status before session continuation (e.g., "completed", "terminated", "failed").'),
     new_status: z.string().describe('The agent\'s status after session continuation (typically "active").'),
     context_preserved: z.boolean().describe('Whether the agent\'s conversation context was preserved during resumption.'),
-    task_updated: z.boolean().describe('Whether the agent was given a new task description during resumption.'),
+    objective_updated: z.boolean().describe('Whether the agent was given a new objective description during resumption.'),
     instructions_added: z.boolean().describe('Whether additional instructions were provided to the agent during resumption.'),
     claude_pid: z.number().optional().describe('Process ID of the resumed Claude agent process, if available.'),
     room_id: z.string().optional().describe('ID of the coordination room the agent is assigned to, if any.'),
     resumption_details: z.object({
-      original_task: z.string().optional().describe('The agent\'s original task description.'),
-      new_task: z.string().optional().describe('The new task description, if updated.'),
+      original_objective: z.string().optional().describe('The agent\'s original objective description.'),
+      new_objective: z.string().optional().describe('The new objective description, if updated.'),
       additional_instructions: z.string().optional().describe('Additional instructions provided during resumption.'),
       metadata_updates: z.record(z.string(), z.any()).optional().describe('Metadata updates applied during resumption.')
     }).describe('Details about what was changed or preserved during the session continuation.')
@@ -240,7 +240,7 @@ export const ContinueAgentSessionResponseSchema = z.object({
 // Export response types
 export type OrchestrationObjectiveResponse = z.infer<typeof OrchestrationObjectiveResponseSchema>;
 export type SpawnAgentResponse = z.infer<typeof SpawnAgentResponseSchema>;
-export type CreateTaskResponse = z.infer<typeof CreateTaskResponseSchema>;
+export type CreateObjectiveResponse = z.infer<typeof CreateObjectiveResponseSchema>;
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponseSchema>;
 export type TerminateAgentResponse = z.infer<typeof TerminateAgentResponseSchema>;
 export type MonitorAgentsResponse = z.infer<typeof MonitorAgentsResponseSchema>;

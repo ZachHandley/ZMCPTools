@@ -67,9 +67,9 @@ export default defineConfig([
       }
     }
   },
-  // CLI build (with shebang)
+  // CLI build (with shebang, single entry point)
   {
-    entry: ['src/cli/index.ts'],
+    entry: { 'index': 'src/cli/index.ts' },
     outDir: 'dist/cli',
     format: ['esm'],
     dts: true,
@@ -90,14 +90,53 @@ export default defineConfig([
     banner: {
       js: '#!/usr/bin/env node'
     },
-    // Ensure CLI binary is executable
+    // Ensure CLI binary is executable and copy dashboard files
     onSuccess: async () => {
       const { execSync } = await import('child_process');
+      const fs = await import('fs');
+      const path = await import('path');
+      
       try {
         execSync('chmod +x dist/cli/index.js', { stdio: 'ignore' });
         console.log('✅ Made CLI binary executable');
       } catch (error) {
         console.warn('⚠️  Failed to make CLI binary executable:', error);
+      }
+      
+      // Copy dashboard dist files to CLI build
+      try {
+        const dashboardDistPath = path.resolve('dashboard/dist');
+        const cliDashboardPath = path.resolve('dist/cli/dashboard');
+        
+        if (fs.existsSync(dashboardDistPath)) {
+          // Copy dashboard files to a subdirectory to avoid conflicts
+          const astroAssetsPath = path.join(cliDashboardPath, 'web');
+          
+          // Copy dashboard files
+          function copyRecursive(src, dest) {
+            fs.mkdirSync(dest, { recursive: true });
+            const items = fs.readdirSync(src);
+            
+            for (const item of items) {
+              const srcPath = path.join(src, item);
+              const destPath = path.join(dest, item);
+              const stat = fs.statSync(srcPath);
+              
+              if (stat.isDirectory()) {
+                copyRecursive(srcPath, destPath);
+              } else {
+                fs.copyFileSync(srcPath, destPath);
+              }
+            }
+          }
+          
+          copyRecursive(dashboardDistPath, astroAssetsPath);
+          console.log('✅ Copied dashboard files to CLI build');
+        } else {
+          console.warn('⚠️  Dashboard dist not found - run npm run build:dashboard first');
+        }
+      } catch (error) {
+        console.warn('⚠️  Failed to copy dashboard files:', error);
       }
     }
   }

@@ -57,11 +57,11 @@ export class ToolCallLogRepository extends BaseRepository<
   }
 
   /**
-   * Find tool calls by task ID
+   * Find tool calls by objective ID
    */
-  async findByTaskId(taskId: string): Promise<ToolCallLog[]> {
+  async findByObjectiveId(objectiveId: string): Promise<ToolCallLog[]> {
     return this.query()
-      .where(eq(toolCallLogs.taskId, taskId))
+      .where(eq(toolCallLogs.objectiveId, objectiveId))
       .orderBy(toolCallLogs.createdAt, 'desc')
       .execute();
   }

@@ -3,7 +3,7 @@ import {
   planCreateRequestSchema,
   planFilterSchema,
   planSectionUpdateSchema,
-  planTodoUpdateSchema,
+  planObjectiveUpdateSchema,
   planStatusSchema,
   sectionTypeSchema,
   planSectionSchema
@@ -26,7 +26,7 @@ export const UpdatePlanStatusSchema = z.object({
 // Simplified schemas - removed all todo-related operations
 
 export const GeneratePlanFromObjectiveSchema = z.object({
-  repositoryPath: z.string().min(1, 'Repository path is required'),
+  repositoryPath: z.string().optional().describe('Optional repository path. If not provided, uses the agent\'s current working directory.'),
   objective: z.string().min(1).max(4096, 'Objective description is required'),
   title: z.string().min(1).max(200, 'Plan title is required'),
   priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
@@ -72,8 +72,8 @@ export const CreatePlanResponseSchema = z.object({
     title: z.string(),
     status: planStatusSchema,
     sectionsCount: z.number(),
-    totalTodos: z.number(),
-    createdTaskIds: z.array(z.string()).optional()
+    totalObjectives: z.number(),
+    createdObjectiveIds: z.array(z.string()).optional()
   }).optional(),
   error: z.string().optional()
 });
@@ -86,8 +86,8 @@ export const GetPlanResponseSchema = z.object({
     progress: z.object({
       totalSections: z.number(),
       completedSections: z.number(),
-      totalTodos: z.number(),
-      completedTodos: z.number(),
+      totalObjectives: z.number(),
+      completedObjectives: z.number(),
       progressPercentage: z.number()
     })
   }).optional(),
@@ -112,7 +112,7 @@ export const GeneratePlanFromObjectiveResponseSchema = z.object({
     planId: z.string(),
     title: z.string(),
     sectionsGenerated: z.number(),
-    totalTodos: z.number(),
+    totalObjectives: z.number(),
     estimatedHours: z.number().optional()
   }).optional(),
   error: z.string().optional()

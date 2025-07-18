@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-content {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            background: #f9f9f9;
+        }
+        .raw-content {
+            background: #fff;
+            padding: 10px;
+            border: 1px solid #ccc;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>Markdown Rendering Test</h1>
+    
+    <h2>Test Messages</h2>
+    
+    <div class="test-message">
+        <h3>Agent Message with Markdown</h3>
+        <div class="raw-content">## Task Status Update
+
+**Current Progress:** 80% complete
+
+### Completed Items:
+- ✅ Database schema design
+- ✅ API endpoints implementation
+- ✅ Frontend components
+
+### Remaining Work:
+1. **Testing** - Unit tests for core functions
+2. **Documentation** - API documentation
+3. **Deployment** - Production configuration
+
+```javascript
+// Example code block
+const status = {
+    progress: 80,
+    completed: true
+};
+```
+
+> **Note:** This is a blockquote with important information.
+
+For more details, see the [project documentation](https://example.com).</div>
+        
+        <h4>Rendered Output:</h4>
+        <div class="test-content" id="rendered-content"></div>
+    </div>
+
+    <script>
+        // Test the markdown rendering
+        const markdownContent = `## Task Status Update
+
+**Current Progress:** 80% complete
+
+### Completed Items:
+- ✅ Database schema design
+- ✅ API endpoints implementation
+- ✅ Frontend components
+
+### Remaining Work:
+1. **Testing** - Unit tests for core functions
+2. **Documentation** - API documentation
+3. **Deployment** - Production configuration
+
+\`\`\`javascript
+// Example code block
+const status = {
+    progress: 80,
+    completed: true
+};
+\`\`\`
+
+> **Note:** This is a blockquote with important information.
+
+For more details, see the [project documentation](https://example.com).`;
+
+        // Configure marked
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            sanitize: false
+        });
+
+        // Render markdown
+        const renderedHtml = marked.parse(markdownContent);
+        document.getElementById('rendered-content').innerHTML = renderedHtml;
+    </script>
+</body>
+</html>

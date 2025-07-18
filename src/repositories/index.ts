@@ -72,7 +72,7 @@ export function createRepositoryConfig<TTable extends SQLiteTable>(
 // Repository implementations
 export { MemoryRepository } from './MemoryRepository.js';
 export { AgentRepository } from './AgentRepository.js';
-export { TaskRepository } from './TaskRepository.js';
+export { ObjectiveRepository } from './ObjectiveRepository.js';
 export { PlanRepository } from './PlanRepository.js';
 export { CommunicationRepository } from './CommunicationRepository.js';
 export { DocumentationRepository } from './DocumentationRepository.js';
@@ -86,6 +86,7 @@ export {
   KnowledgeRelationshipRepository,
   KnowledgeInsightRepository
 } from './KnowledgeGraphRepository.js';
+export { ProjectRepository } from './ProjectRepository.js';
 
 /**
  * Helper function to create a type-safe repository with full TypeScript support

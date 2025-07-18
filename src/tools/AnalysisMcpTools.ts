@@ -17,6 +17,8 @@ import { FileOperationsService, type ListFilesOptions, type FindFilesOptions, ty
 import { FoundationCacheService } from '../services/FoundationCacheService.js';
 import { TreeSummaryService, type DirectoryNode } from '../services/TreeSummaryService.js';
 import { AnalysisResponseSchema, createSuccessResponse, createErrorResponse, type AnalysisResponse, ProjectStructureInfoSchema, ProjectSummarySchema, FileSymbolsSchema, type ProjectStructureInfo, type ProjectSummary, type FileSymbols } from '../schemas/toolResponses.js';
+import { PatternMatcher } from '../utils/patternMatcher.js';
+import { Logger } from '../utils/logger.js';
 
 // Import centralized request schemas
 import {
@@ -61,12 +63,14 @@ const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
+const lstat = promisify(fs.lstat);
 const access = promisify(fs.access);
 
 export class AnalysisMcpTools {
   private fileOpsService: FileOperationsService;
   private treeSummaryService: TreeSummaryService;
   private lezerParserService: LezerParserService;
+  private logger: Logger;
 
   constructor(
     private knowledgeGraphService: KnowledgeGraphService,
@@ -76,6 +80,7 @@ export class AnalysisMcpTools {
     this.fileOpsService = new FileOperationsService();
     this.treeSummaryService = new TreeSummaryService(foundationCache);
     this.lezerParserService = new LezerParserService();
+    this.logger = new Logger('analysis-mcp-tools');
   }
 
   /**
@@ -156,11 +161,11 @@ export class AnalysisMcpTools {
       generate_summary: normalizedArgs.generateSummary
     });
     
-    const projectPath = path.resolve(params.project_path);
+    const projectPath = path.resolve(params.project_path || this.repositoryPath);
     
     // Try to get cached analysis first if foundation cache is available
     if (this.foundationCache) {
-      const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.exclude_patterns)}`;
+      const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.include_patterns)}_${JSON.stringify(params.exclude_patterns)}`;
       const cachedStructure = await this.foundationCache.getCachedAnalysis(
         projectPath,
         cacheKey,
@@ -185,11 +190,17 @@ export class AnalysisMcpTools {
     }
     
     const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, params.exclude_patterns);
-    const structure = await this.buildProjectStructure(projectPath, params.max_depth, combinedExcludePatterns);
+    const structure = await this.buildProjectStructure(
+      projectPath, 
+      params.max_depth, 
+      combinedExcludePatterns,
+      0, // currentDepth
+      params.include_patterns // Pass include patterns
+    );
     
     // Cache the result if foundation cache is available
     if (this.foundationCache) {
-      const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.exclude_patterns)}`;
+      const cacheKey = `structure_${projectPath}_${params.max_depth}_${JSON.stringify(params.include_patterns)}_${JSON.stringify(params.exclude_patterns)}`;
       await this.foundationCache.cacheAnalysisResult(
         projectPath,
         cacheKey,
@@ -246,7 +257,7 @@ export class AnalysisMcpTools {
       output_path: normalizedArgs.outputPath
     });
     
-    const projectPath = path.resolve(params.project_path);
+    const projectPath = path.resolve(params.project_path || this.repositoryPath);
     
     // Try to get cached summary first if foundation cache is available
     if (this.foundationCache) {
@@ -281,7 +292,7 @@ export class AnalysisMcpTools {
     if (!structure) {
       const defaultExcludePatterns = ['node_modules/**', '.git/**'];
       const combinedExcludePatterns = await this.getCombinedExcludePatterns(projectPath, defaultExcludePatterns);
-      structure = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns);
+      structure = await this.buildProjectStructure(projectPath, 5, combinedExcludePatterns, 0, ['**/*']);
     }
     
     // Calculate stats
@@ -779,7 +790,24 @@ export class AnalysisMcpTools {
   }
 
   // Helper methods
-  private async buildProjectStructure(dirPath: string, maxDepth: number, excludePatterns: string[], currentDepth = 0): Promise<ProjectStructureInfo> {
+  private async buildProjectStructure(
+    dirPath: string, 
+    maxDepth: number, 
+    excludePatterns: string[], 
+    currentDepth = 0,
+    includePatterns: string[] = ['**/*'],
+    rootPath?: string
+  ): Promise<ProjectStructureInfo> {
+    // Use rootPath to track the project root for relative path calculations
+    const projectRoot = rootPath || dirPath;
+    
+    // Log progress for debugging
+    if (currentDepth === 0) {
+      this.logger.debug(`Starting project structure analysis at: ${dirPath}`);
+      this.logger.debug(`Include patterns: ${JSON.stringify(includePatterns)}`);
+      this.logger.debug(`Exclude patterns: ${JSON.stringify(excludePatterns)}`);
+    }
+    
     if (currentDepth >= maxDepth) {
       return {
         path: dirPath,
@@ -790,7 +818,22 @@ export class AnalysisMcpTools {
     }
 
     try {
-      const stats = await stat(dirPath);
+      // Use lstat to detect symbolic links (stat follows symlinks)
+      const stats = await lstat(dirPath);
+      
+      // Check for symbolic links to prevent infinite loops
+      if (stats.isSymbolicLink()) {
+        this.logger.debug(`Skipping symbolic link: ${dirPath}`);
+        return {
+          path: dirPath,
+          name: path.basename(dirPath),
+          type: 'file',
+          size: 0,
+          extension: '',
+          lastModified: stats.mtime
+        };
+      }
+      
       const isDirectory = stats.isDirectory();
 
       if (!isDirectory) {
@@ -809,13 +852,28 @@ export class AnalysisMcpTools {
 
       for (const entry of entries) {
         const entryPath = path.join(dirPath, entry);
+        const relativePath = path.relative(projectRoot, entryPath);
         
-        // Check if should be excluded
-        if (this.shouldExclude(entryPath, excludePatterns)) {
+        // Check if should be excluded first (excludes take precedence)
+        if (this.shouldExclude(relativePath, excludePatterns, projectRoot)) {
+          this.logger.debug(`Excluded by pattern: ${relativePath}`);
+          continue;
+        }
+        
+        // Check if should be included
+        if (!this.shouldInclude(relativePath, includePatterns, projectRoot)) {
+          this.logger.debug(`Not included by pattern: ${relativePath}`);
           continue;
         }
 
-        const child = await this.buildProjectStructure(entryPath, maxDepth, excludePatterns, currentDepth + 1);
+        const child = await this.buildProjectStructure(
+          entryPath, 
+          maxDepth, 
+          excludePatterns, 
+          currentDepth + 1,
+          includePatterns,
+          projectRoot
+        );
         children.push(child);
       }
 
@@ -827,6 +885,7 @@ export class AnalysisMcpTools {
         lastModified: stats.mtime
       };
     } catch (error) {
+      this.logger.warn(`Error reading directory ${dirPath}: ${error}`);
       return {
         path: dirPath,
         name: path.basename(dirPath),
@@ -876,13 +935,31 @@ export class AnalysisMcpTools {
     return [...excludePatterns, ...claudeIgnorePatterns];
   }
 
-  private shouldExclude(filePath: string, excludePatterns: string[]): boolean {
-    const relativePath = path.relative(process.cwd(), filePath);
-    return excludePatterns.some(pattern => {
-      // Simple glob-like matching
-      const regex = new RegExp(pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*'));
-      return regex.test(relativePath);
-    });
+  private shouldExclude(relativePath: string, excludePatterns: string[], projectRoot?: string): boolean {
+    // Use PatternMatcher for proper glob pattern matching
+    for (const pattern of excludePatterns) {
+      const result = PatternMatcher.matchesPattern(relativePath, pattern);
+      if (result.matches) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  private shouldInclude(relativePath: string, includePatterns: string[], projectRoot?: string): boolean {
+    // If no include patterns specified, include everything by default
+    if (includePatterns.length === 0 || (includePatterns.length === 1 && includePatterns[0] === '**/*')) {
+      return true;
+    }
+    
+    // Use PatternMatcher for proper glob pattern matching
+    for (const pattern of includePatterns) {
+      const result = PatternMatcher.matchesPattern(relativePath, pattern);
+      if (result.matches) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private generateTreeSummary(structure: ProjectStructureInfo): string {

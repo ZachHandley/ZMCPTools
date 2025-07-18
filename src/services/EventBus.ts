@@ -1,10 +1,10 @@
 import { Logger } from '../utils/logger.js';
 import type { 
   AgentStatus, 
-  TaskStatus, 
+  ObjectiveStatus, 
   MessageType,
   AgentSession,
-  Task,
+  Objective,
   ChatMessage,
   ChatRoom 
 } from '../schemas/index.js';
@@ -46,11 +46,11 @@ export interface EventTypes {
     sessionId?: string;
   };
   
-  // Task events  
-  task_update: {
-    taskId: string;
-    previousStatus?: TaskStatus;
-    newStatus: TaskStatus;
+  // Objective events  
+  objective_update: {
+    objectiveId: string;
+    previousStatus?: ObjectiveStatus;
+    newStatus: ObjectiveStatus;
     assignedAgentId?: string;
     progressPercentage?: number;
     timestamp: Date;
@@ -58,14 +58,14 @@ export interface EventTypes {
     metadata?: Record<string, any>;
   };
   
-  task_created: {
-    task: Task;
+  objective_created: {
+    objective: Objective;
     timestamp: Date;
     repositoryPath: string;
   };
   
-  task_completed: {
-    taskId: string;
+  objective_completed: {
+    objectiveId: string;
     completedBy?: string;
     results?: Record<string, any>;
     timestamp: Date;
@@ -109,8 +109,8 @@ export interface EventTypes {
     phase: 'planning' | 'execution' | 'monitoring' | 'completion';
     status: 'started' | 'in_progress' | 'completed' | 'failed';
     agentCount: number;
-    completedTasks: number;
-    totalTasks: number;
+    completedObjectives: number;
+    totalObjectives: number;
     timestamp: Date;
     repositoryPath: string;
     metadata?: Record<string, any>;
@@ -151,7 +151,7 @@ export interface EventTypes {
   // Progress events
   progress_update: {
     contextId: string;
-    contextType: 'agent' | 'orchestration' | 'task' | 'monitoring';
+    contextType: 'agent' | 'orchestration' | 'objective' | 'monitoring';
     agentId?: string;
     actualProgress: number;
     reportedProgress: number;
@@ -174,6 +174,89 @@ export interface EventTypes {
     context: string;
     timestamp: Date;
     repositoryPath?: string;
+  };
+
+  // MCP Tool events
+  tool_call_started: {
+    toolName: string;
+    arguments: Record<string, any>;
+    sessionId?: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
+  tool_call_completed: {
+    toolName: string;
+    arguments: Record<string, any>;
+    result: any;
+    duration: number;
+    sessionId?: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
+  tool_call_failed: {
+    toolName: string;
+    arguments: Record<string, any>;
+    error: Error;
+    sessionId?: string;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
+  // Server events
+  server_status_change: {
+    status: 'starting' | 'active' | 'connected' | 'disconnected' | 'error';
+    previousStatus?: string;
+    timestamp: Date;
+    repositoryPath: string;
+    metadata?: Record<string, any>;
+  };
+
+  server_heartbeat: {
+    status: string;
+    uptime: number;
+    memoryUsage: any;
+    activeTransports: number;
+    timestamp: Date;
+    repositoryPath: string;
+  };
+
+  // Project events
+  project_status_change: {
+    projectId: string;
+    projectName: string;
+    previousStatus: string;
+    newStatus: string;
+    timestamp: Date;
+    repositoryPath: string;
+    metadata?: Record<string, any>;
+  };
+
+  project_registered: {
+    projectId: string;
+    projectName: string;
+    repositoryPath: string;
+    mcpServerType: string;
+    timestamp: Date;
+    metadata?: Record<string, any>;
+  };
+
+  project_disconnected: {
+    projectId: string;
+    projectName: string;
+    repositoryPath: string;
+    timestamp: Date;
+    reason?: string;
+  };
+
+  project_heartbeat: {
+    projectId: string;
+    projectName: string;
+    status: string;
+    repositoryPath: string;
+    timestamp: Date;
+    metadata?: Record<string, any>;
   };
 }
 

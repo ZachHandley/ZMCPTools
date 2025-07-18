@@ -6,7 +6,7 @@ import { McpToolsServer } from "../server/McpServer.js";
 import { DatabaseManager } from "../database/index.js";
 import {
   AgentService,
-  TaskService,
+  ObjectiveService,
   CommunicationService,
   MemoryService,
 } from "../services/index.js";
@@ -161,7 +161,7 @@ agentCmd
       const agent = await agentService.createAgent({
         agentName: options.type,
         repositoryPath: options.repository,
-        taskDescription: options.description,
+        objectiveDescription: options.description,
         capabilities: options.capabilities || ["ALL_TOOLS"],
         dependsOn: options.dependsOn || [],
       });
@@ -208,12 +208,12 @@ agentCmd
     }
   });
 
-// Task management commands
-const taskCmd = program.command("task").description("Task management commands");
+// Objective management commands
+const objectiveCmd = program.command("objective").description("Objective management commands");
 
-taskCmd
+objectiveCmd
   .command("list")
-  .description("List tasks")
+  .description("List objectives")
   .option("-r, --repository <path>", "Repository path", process.cwd())
   .option("-s, --status <status>", "Status filter")
   .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
@@ -224,42 +224,42 @@ taskCmd
       });
       await db.initialize();
 
-      const taskService = new TaskService(db);
-      const tasks = await taskService.listTasks(options.repository, {
+      const objectiveService = new ObjectiveService(db);
+      const objectives = await objectiveService.listObjectives(options.repository, {
         status: options.status,
       });
 
-      console.log(`\n📋 Found ${tasks.length} tasks:\n`);
+      console.log(`\n📋 Found ${objectives.length} objectives:\n`);
 
-      if (tasks.length === 0) {
-        console.log("   No tasks found matching criteria");
+      if (objectives.length === 0) {
+        console.log("   No objectives found matching criteria");
         return;
       }
 
-      for (const task of tasks) {
-        console.log(`📝 ${task.description.slice(0, 60)}... (${task.id})`);
-        console.log(`   📊 Status: ${task.status}`);
-        console.log(`   🏷️  Type: ${task.taskType}`);
-        console.log(`   ⭐ Priority: ${task.priority}`);
+      for (const objective of objectives) {
+        console.log(`📝 ${objective.description.slice(0, 60)}... (${objective.id})`);
+        console.log(`   📊 Status: ${objective.status}`);
+        console.log(`   🏷️  Type: ${objective.objectiveType}`);
+        console.log(`   ⭐ Priority: ${objective.priority}`);
         console.log(
-          `   👤 Assigned to: ${task.assignedAgentId || "Unassigned"}`
+          `   👤 Assigned to: ${objective.assignedAgentId || "Unassigned"}`
         );
-        console.log(`   📅 Created: ${task.createdAt}`);
+        console.log(`   📅 Created: ${objective.createdAt}`);
         console.log("");
       }
     } catch (error) {
-      console.error("❌ Failed to list tasks:", error);
+      console.error("❌ Failed to list objectives:", error);
       process.exit(1);
     }
   });
 
-taskCmd
+objectiveCmd
   .command("create")
-  .description("Create a new task")
-  .requiredOption("-t, --title <title>", "Task title")
-  .requiredOption("-d, --description <desc>", "Task description")
+  .description("Create a new objective")
+  .requiredOption("-t, --title <title>", "Objective title")
+  .requiredOption("-d, --description <desc>", "Objective description")
   .option("-r, --repository <path>", "Repository path", process.cwd())
-  .option("--type <type>", "Task type", "feature")
+  .option("--type <type>", "Objective type", "feature")
   .option("--priority <priority>", "Priority (low, medium, high)", "medium")
   .option("--data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
   .action(async (options) => {
@@ -269,22 +269,22 @@ taskCmd
       });
       await db.initialize();
 
-      const taskService = new TaskService(db);
-      const task = await taskService.createTask({
+      const objectiveService = new ObjectiveService(db);
+      const objective = await objectiveService.createObjective({
         description: options.description,
         repositoryPath: options.repository,
-        taskType: options.type,
+        objectiveType: options.type,
         priority: options.priority,
       });
 
-      console.log(`✅ Task created successfully:`);
-      console.log(`   🆔 ID: ${task.id}`);
-      console.log(`   📝 Description: ${task.description}`);
-      console.log(`   🏷️  Type: ${task.taskType}`);
-      console.log(`   ⭐ Priority: ${task.priority}`);
-      console.log(`   📊 Status: ${task.status}`);
+      console.log(`✅ Objective created successfully:`);
+      console.log(`   🆔 ID: ${objective.id}`);
+      console.log(`   📝 Description: ${objective.description}`);
+      console.log(`   🏷️  Type: ${objective.objectiveType}`);
+      console.log(`   ⭐ Priority: ${objective.priority}`);
+      console.log(`   📊 Status: ${objective.status}`);
     } catch (error) {
-      console.error("❌ Failed to create task:", error);
+      console.error("❌ Failed to create objective:", error);
       process.exit(1);
     }
   });
@@ -519,7 +519,7 @@ program
 
       // Get counts from services
       const agentService = new AgentService(db);
-      const taskService = new TaskService(db);
+      const objectiveService = new ObjectiveService(db);
       const memoryService = new MemoryService(db);
 
       console.log(`\n📊 ZMCPTools TypeScript Status:\n`);
@@ -554,6 +554,112 @@ program
     }
   });
 
+// Dashboard command
+program
+  .command("dashboard")
+  .description("Start the web dashboard interface")
+  .option("-p, --port <number>", "Dashboard port", "4270")
+  .option("-h, --host <address>", "Dashboard host", "127.0.0.1")
+  .option("-s, --site <url>", "Site URL override (e.g., http://127.0.0.1:4270)")
+  .option("-d, --data-dir <path>", "Data directory", DEFAULT_DATA_DIR)
+  .option("--no-browser", "Don't open browser automatically")
+  .action(async (options) => {
+    try {
+      console.log("🌐 Starting ZMCPTools Dashboard...\n");
+
+      // Set environment variables for Astro
+      const siteUrl = options.site || `http://${options.host}:${options.port}`;
+      process.env.PORT = options.port;
+      process.env.HOST = options.host;
+      process.env.SITE_URL = siteUrl;
+      process.env.DATA_DIR = options.dataDir;
+
+      // Run Astro in production mode
+      const dashboardDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dashboard');
+      
+      const { spawn } = await import('child_process');
+      
+      console.log(`📂 Dashboard directory: ${dashboardDir}`);
+      console.log(`🌍 Starting server at ${siteUrl}`);
+      
+      // WebSocket is now handled by the Astro server via astro-node-websocket
+      console.log(`🔌 WebSocket available at ${siteUrl}/api/ws`);
+
+      // Write dashboard info for MCP server discovery
+      const dashboardInfoPath = path.join(options.dataDir, 'dashboard.port');
+      const dashboardInfo = {
+        url: siteUrl,
+        wsUrl: `ws://${options.host}:${options.port}/api/ws`,
+        wsPort: options.port,
+        port: options.port,
+        host: options.host,
+        pid: process.pid,
+        startTime: new Date().toISOString()
+      };
+      
+      try {
+        const fs = await import('fs');
+        fs.writeFileSync(dashboardInfoPath, JSON.stringify(dashboardInfo, null, 2));
+        console.log(`📝 Dashboard info written to ${dashboardInfoPath}`);
+      } catch (error) {
+        console.warn(`⚠️  Could not write dashboard info: ${error}`);
+      }
+      
+      const astroProcess = spawn('node', ['dist/server/entry.mjs'], {
+        cwd: dashboardDir,
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          PORT: options.port,
+          HOST: options.host,
+          SITE_URL: siteUrl,
+          DATA_DIR: options.dataDir
+        }
+      });
+
+      // Set process title for monitoring
+      process.title = 'zmcp-dashboard';
+
+      // Handle graceful shutdown
+      const cleanup = async () => {
+        try {
+          const fs = await import('fs');
+          if (fs.existsSync(dashboardInfoPath)) {
+            fs.unlinkSync(dashboardInfoPath);
+            console.log(`🗑️  Removed dashboard info file`);
+          }
+        } catch (error) {
+          console.warn(`⚠️  Could not remove dashboard info: ${error}`);
+        }
+      };
+
+      process.on("SIGINT", async () => {
+        console.log("\n🛑 Shutting down dashboard...");
+        await cleanup();
+        astroProcess.kill('SIGTERM');
+        process.exit(0);
+      });
+
+      process.on("SIGTERM", async () => {
+        console.log("\n🛑 Shutting down dashboard...");
+        await cleanup();
+        astroProcess.kill('SIGTERM');
+        process.exit(0);
+      });
+
+      astroProcess.on('exit', (code) => {
+        if (code !== 0) {
+          console.error(`❌ Dashboard process exited with code ${code}`);
+          process.exit(code || 1);
+        }
+      });
+
+    } catch (error) {
+      console.error("❌ Failed to start dashboard:", error);
+      process.exit(1);
+    }
+  });
+
 // Add help command that shows enhanced usage
 program
   .command("help")
@@ -580,10 +686,10 @@ program
     );
     console.log(`   zmcp-tools agent terminate -i <agent-id>\n`);
 
-    console.log(`${colors.cyan}📋 Task Management:${colors.reset}`);
-    console.log(`   zmcp-tools task list`);
+    console.log(`${colors.cyan}📋 Objective Management:${colors.reset}`);
+    console.log(`   zmcp-tools objective list`);
     console.log(
-      `   zmcp-tools task create -t "User Auth" -d "Implement authentication"\n`
+      `   zmcp-tools objective create -t "User Auth" -d "Implement authentication"\n`
     );
 
     console.log(`${colors.cyan}🧠 Memory Operations:${colors.reset}`);
@@ -599,6 +705,7 @@ program
     console.log(`${colors.cyan}📊 System:${colors.reset}`);
     console.log(`   zmcp-tools status               # System status`);
     console.log(`   zmcp-tools server               # Start MCP server`);
+    console.log(`   zmcp-tools dashboard            # Start web dashboard`);
     console.log(
       `   zmcp-tools migrate              # Migrate to Drizzle ORM`
     );

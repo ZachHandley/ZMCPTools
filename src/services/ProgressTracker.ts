@@ -16,7 +16,7 @@ const logger = new Logger('ProgressTracker');
 
 export interface ProgressContext {
   contextId: string;
-  contextType: 'agent' | 'orchestration' | 'task' | 'monitoring';
+  contextType: 'agent' | 'orchestration' | 'objective' | 'monitoring';
   repositoryPath: string;
   metadata?: Record<string, any>;
 }

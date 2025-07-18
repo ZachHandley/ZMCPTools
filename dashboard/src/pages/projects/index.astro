@@ -1,0 +1,80 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+
+<Layout title="Projects - ZMCPTools Dashboard">
+  <main class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="bg-white shadow rounded-lg p-6">
+        <div class="border-b border-gray-200 pb-4 mb-6">
+          <h1 class="text-2xl font-bold text-gray-900">Projects</h1>
+          <p class="mt-1 text-sm text-gray-600">
+            Manage and monitor your ZMCPTools projects
+          </p>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Example project cards -->
+          <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
+            <h3 class="text-lg font-medium text-gray-900 mb-2">
+              <a href="/projects/example-project" class="hover:text-blue-600">
+                example-project
+              </a>
+            </h3>
+            <p class="text-sm text-gray-600 mb-3">
+              Example project for testing dynamic routing
+            </p>
+            <div class="flex items-center justify-between">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                Active
+              </span>
+              <a href="/projects/example-project" class="text-sm text-blue-600 hover:text-blue-500">
+                View Details →
+              </a>
+            </div>
+          </div>
+          
+          <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-blue-300 transition-colors">
+            <h3 class="text-lg font-medium text-gray-900 mb-2">
+              <a href="/projects/my-app" class="hover:text-blue-600">
+                my-app
+              </a>
+            </h3>
+            <p class="text-sm text-gray-600 mb-3">
+              Another example project to demonstrate routing
+            </p>
+            <div class="flex items-center justify-between">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                In Progress
+              </span>
+              <a href="/projects/my-app" class="text-sm text-blue-600 hover:text-blue-500">
+                View Details →
+              </a>
+            </div>
+          </div>
+          
+          <!-- Add new project card -->
+          <div class="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300 hover:border-blue-300 transition-colors flex items-center justify-center">
+            <div class="text-center">
+              <div class="text-gray-400 mb-2">
+                <svg class="mx-auto h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+              </div>
+              <button type="button" class="text-sm text-gray-600 hover:text-blue-600">
+                Add New Project
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Navigation -->
+        <div class="mt-6 pt-4 border-t border-gray-200">
+          <a href="/" class="inline-flex items-center text-sm text-blue-600 hover:text-blue-500">
+            ← Back to Dashboard
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+</Layout>

@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-primary-800: #1e40af;
+  --color-primary-900: #1e3a8a;
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-200: #bbf7d0;
+  --color-success-300: #86efac;
+  --color-success-400: #4ade80;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+  --color-success-800: #166534;
+  --color-success-900: #14532d;
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-200: #fecaca;
+  --color-error-300: #fca5a5;
+  --color-error-400: #f87171;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+  --color-error-800: #991b1b;
+  --color-error-900: #7f1d1d;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", Monaco, Menlo, monospace;
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-bounce-gentle: bounce 2s infinite;
+  --animate-spin-slow: spin 3s linear infinite;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Custom markdown styles for messages */
+.message-content {
+  @apply max-w-none text-gray-700;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  @apply mb-2 mt-3 font-semibold;
+}
+
+.message-content h1 { @apply text-lg; }
+.message-content h2 { @apply text-base; }
+.message-content h3 { @apply text-sm; }
+.message-content h4,
+.message-content h5,
+.message-content h6 { @apply text-sm; }
+
+.message-content p {
+  @apply mb-2 leading-relaxed;
+}
+
+.message-content ul,
+.message-content ol {
+  @apply mb-2 pl-4;
+}
+
+.message-content li {
+  @apply mb-1;
+}
+
+.message-content code {
+  @apply px-1 py-0.5 bg-gray-100 rounded text-xs font-mono;
+}
+
+.message-content pre {
+  @apply p-2 bg-gray-50 rounded border text-xs overflow-x-auto;
+}
+
+.message-content pre code {
+  @apply p-0 bg-transparent;
+}
+
+.message-content blockquote {
+  @apply border-l-4 border-gray-300 pl-3 italic text-gray-600;
+}
+
+.message-content strong {
+  @apply font-semibold;
+}
+
+.message-content em {
+  @apply italic;
+}
+
+.message-content a {
+  @apply text-primary-600 hover:text-primary-800 underline;
+}

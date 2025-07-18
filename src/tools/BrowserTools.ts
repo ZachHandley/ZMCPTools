@@ -406,7 +406,7 @@ export class BrowserTools {
         await this.knowledgeGraphService.createEntity({
           id: `browser-session-${Date.now()}`,
           repositoryPath: this.repositoryPath,
-          entityType: 'task',
+          entityType: 'objective',
           name: `Browser session created: ${sessionId}`,
           description: `Created ${browserType} browser session with ID ${sessionId}`,
           properties: { sessionId, browserType },

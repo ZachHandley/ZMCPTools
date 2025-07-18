@@ -1,11 +1,11 @@
 import { EventEmitter } from 'events';
 import { DatabaseManager } from '../database/index.js';
-import { AgentService, TaskService, CommunicationService, KnowledgeGraphService } from './index.js';
-import { TaskComplexityAnalyzer, type TaskComplexityAnalysis, type ModelType } from './TaskComplexityAnalyzer.js';
+import { AgentService, ObjectiveService, CommunicationService, KnowledgeGraphService } from './index.js';
+import { ObjectiveComplexityAnalyzer, type ObjectiveComplexityAnalysis, type ModelType } from './ObjectiveComplexityAnalyzer.js';
 import { ClaudeSpawner } from '../process/ClaudeSpawner.js';
 import { eventBus } from './EventBus.js';
 import { Logger } from '../utils/logger.js';
-import type { TaskType, AgentStatus, MessageType } from '../schemas/index.js';
+import type { ObjectiveType, AgentStatus, MessageType } from '../schemas/index.js';
 
 export interface PlanningRequest {
   objective: string;
@@ -18,14 +18,14 @@ export interface PlanningRequest {
   constraints?: string[];
 }
 
-export interface TaskBreakdown {
+export interface ObjectiveBreakdown {
   id: string;
   title: string;
   description: string;
-  taskType: TaskType;
+  objectiveType: ObjectiveType;
   priority: number;
   estimatedDuration: number; // in minutes
-  dependencies: string[]; // IDs of other tasks
+  dependencies: string[]; // IDs of other objectives
   requiredCapabilities: string[];
   assignedAgentType?: string;
   complexity: 'simple' | 'moderate' | 'complex';
@@ -39,7 +39,7 @@ export interface AgentSpecification {
   role: string;
   responsibilities: string[];
   requiredCapabilities: string[];
-  taskAssignments: string[]; // Task IDs
+  objectiveAssignments: string[]; // Objective IDs
   coordinationRequirements: string[];
   dependsOn: string[]; // Other agent IDs
   priority: number;
@@ -50,11 +50,11 @@ export interface ExecutionPlan {
   planningId: string;
   objective: string;
   planningApproach: string;
-  complexityAnalysis: TaskComplexityAnalysis;
+  complexityAnalysis: ObjectiveComplexityAnalysis;
   
-  // Task Structure
-  tasks: TaskBreakdown[];
-  taskDependencyGraph: Record<string, string[]>;
+  // Objective Structure
+  objectives: ObjectiveBreakdown[];
+  objectiveDependencyGraph: Record<string, string[]>;
   criticalPath: string[];
   
   // Agent Coordination
@@ -92,7 +92,7 @@ export interface ExecutionPlan {
     phases: Array<{
       name: string;
       description: string;
-      tasks: string[];
+      objectives: string[];
       agents: string[];
       duration: number;
     }>;
@@ -135,10 +135,10 @@ export interface PlanningResult {
  */
 export class SequentialPlanningService extends EventEmitter {
   private agentService: AgentService;
-  private taskService: TaskService;
+  private objectiveService: ObjectiveService;
   private communicationService: CommunicationService;
   private knowledgeGraphService: KnowledgeGraphService;
-  private complexityAnalyzer: TaskComplexityAnalyzer;
+  private complexityAnalyzer: ObjectiveComplexityAnalyzer;
   private claudeSpawner: ClaudeSpawner;
   private logger: Logger;
   
@@ -149,9 +149,9 @@ export class SequentialPlanningService extends EventEmitter {
     super();
     
     this.agentService = new AgentService(db);
-    this.taskService = new TaskService(db);
+    this.objectiveService = new ObjectiveService(db);
     this.communicationService = new CommunicationService(db);
-    this.complexityAnalyzer = new TaskComplexityAnalyzer();
+    this.complexityAnalyzer = new ObjectiveComplexityAnalyzer();
     this.claudeSpawner = ClaudeSpawner.getInstance();
     this.logger = new Logger('SequentialPlanningService');
     
@@ -190,11 +190,11 @@ export class SequentialPlanningService extends EventEmitter {
         request
       });
 
-      // Step 2: Analyze task complexity first
-      this.logger.debug('Analyzing task complexity for planning');
-      const complexityAnalysis = await this.complexityAnalyzer.analyzeTask(
+      // Step 2: Analyze objective complexity first
+      this.logger.debug('Analyzing objective complexity for planning');
+      const complexityAnalysis = await this.complexityAnalyzer.analyzeObjective(
         request.objective,
-        'feature', // Default task type for orchestration
+        'feature', // Default objective type for orchestration
         request.repositoryPath,
         {
           includeArchitectural: true,
@@ -243,14 +243,14 @@ export class SequentialPlanningService extends EventEmitter {
       this.logger.info('Sequential planning completed successfully', {
         planningId,
         duration: planningDuration,
-        taskCount: executionPlan.tasks.length,
+        objectiveCount: executionPlan.objectives.length,
         agentCount: executionPlan.agents.length
       });
 
       return {
         success: true,
         planningId,
-        message: `Sequential planning completed successfully. Created plan with ${executionPlan.tasks.length} tasks and ${executionPlan.agents.length} agents.`,
+        message: `Sequential planning completed successfully. Created plan with ${executionPlan.objectives.length} objectives and ${executionPlan.agents.length} agents.`,
         executionPlan,
         planningInsights: this.extractPlanningInsights(executionPlan),
         planningDuration
@@ -281,7 +281,7 @@ export class SequentialPlanningService extends EventEmitter {
   private async spawnPlanningAgent(
     planningId: string,
     request: PlanningRequest,
-    complexityAnalysis: TaskComplexityAnalysis,
+    complexityAnalysis: ObjectiveComplexityAnalysis,
     roomName: string
   ): Promise<{ id: string; agentName: string }> {
     const planningPrompt = this.generateSequentialPlanningPrompt(
@@ -300,7 +300,7 @@ export class SequentialPlanningService extends EventEmitter {
       agentName: 'sequential-planner',
       agentType: 'planner_agent',
       repositoryPath: request.repositoryPath,
-      taskDescription: `Create comprehensive execution plan using sequential thinking for: ${request.objective}`,
+      objectiveDescription: `Create comprehensive execution plan using sequential thinking for: ${request.objective}`,
       capabilities: ['ALL_TOOLS'],
       roomId: roomName,
       metadata: {
@@ -326,12 +326,12 @@ export class SequentialPlanningService extends EventEmitter {
    */
   private generateSequentialPlanningPrompt(
     request: PlanningRequest,
-    complexityAnalysis: TaskComplexityAnalysis,
+    complexityAnalysis: ObjectiveComplexityAnalysis,
     planningId: string,
     roomName: string
   ): string {
-    const constraintsText = request.constraints?.length ? 
-      `\nCONSTRAINTS: ${request.constraints.join(', ')}` : '';
+    const constraintsText = request.constraints ? 
+      `\nCONSTRAINTS: ${request.constraints}` : '';
     
     const preferredAgentsText = request.preferredAgentTypes?.length ?
       `\nPREFERRED AGENT TYPES: ${request.preferredAgentTypes.join(', ')}` : '';
@@ -365,10 +365,10 @@ You MUST use the sequential_thinking tool systematically throughout this plannin
    - Learn from previous planning approaches and implementation strategies
    - Identify reusable components and proven solutions
 
-3. **Task Decomposition**:
-   - Use sequential_thinking() to systematically break down work into specific tasks
-   - Create hierarchical task structure with clear dependencies
-   - Define deliverables and acceptance criteria for each task
+3. **Objective Decomposition**:
+   - Use sequential_thinking() to systematically break down work into specific objectives
+   - Create hierarchical objective structure with clear dependencies
+   - Define deliverables and acceptance criteria for each objective
 
 4. **Agent Specialization Planning**:
    - Use sequential_thinking() to determine optimal agent types and responsibilities
@@ -395,17 +395,17 @@ You MUST use the sequential_thinking tool systematically throughout this plannin
 - search_knowledge_graph() - Learn from previous similar objectives
 - store_knowledge_memory() - Document planning insights and decisions
 - send_message() - Coordinate planning in room ${roomName}
-- create_task() - Create structured planning tasks if needed
+- create_objective() - Create structured planning objectives if needed
 - join_room() - You're already connected to planning room
 
 📋 REQUIRED PLANNING OUTPUTS:
 After completing your sequential thinking analysis, create comprehensive plan including:
 
-1. **Task Breakdown Structure**:
-   - Specific, actionable tasks with clear deliverables
-   - Task dependencies and sequencing requirements
+1. **Objective Breakdown Structure**:
+   - Specific, actionable objectives with clear deliverables
+   - Objective dependencies and sequencing requirements
    - Effort estimates and complexity ratings
-   - Acceptance criteria for each task
+   - Acceptance criteria for each objective
 
 2. **Agent Specification Plan**:
    - Required agent types and their specific responsibilities
@@ -428,7 +428,7 @@ After completing your sequential thinking analysis, create comprehensive plan in
 🎯 PLANNING WORKFLOW:
 1. **Start with sequential_thinking()** to analyze the objective comprehensively
 2. **Search knowledge graph** for relevant patterns and successful approaches
-3. **Use sequential_thinking()** for task decomposition and dependency analysis
+3. **Use sequential_thinking()** for objective decomposition and dependency analysis
 4. **Use sequential_thinking()** for agent coordination and resource planning
 5. **Use sequential_thinking()** for risk analysis and mitigation strategies
 6. **Store planning insights** in knowledge graph for future use
@@ -437,7 +437,7 @@ After completing your sequential thinking analysis, create comprehensive plan in
 ⚠️ CRITICAL PLANNING REQUIREMENTS:
 - ALWAYS start with sequential_thinking() for initial objective analysis
 - Use sequential_thinking() for every major planning decision
-- Create specific, actionable tasks (not vague descriptions)
+- Create specific, actionable objectives (not vague descriptions)
 - Design clear agent responsibilities and coordination mechanisms
 - Include realistic effort estimates and dependency management
 - Plan for monitoring, validation, and success measurement
@@ -463,7 +463,7 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
     agentId: string,
     roomName: string,
     request: PlanningRequest,
-    complexityAnalysis: TaskComplexityAnalysis
+    complexityAnalysis: ObjectiveComplexityAnalysis
   ): Promise<ExecutionPlan> {
     // For now, we'll simulate planning completion and create a structured plan
     // In a real implementation, this would monitor the planning agent's progress
@@ -491,25 +491,25 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
   private async createStructuredExecutionPlan(
     planningId: string,
     request: PlanningRequest,
-    complexityAnalysis: TaskComplexityAnalysis
+    complexityAnalysis: ObjectiveComplexityAnalysis
   ): Promise<ExecutionPlan> {
     // This is a template that would be populated by the planning agent's sequential thinking output
     // For now, we create a reasonable plan based on the complexity analysis
     
-    const tasks: TaskBreakdown[] = [];
+    const objectives: ObjectiveBreakdown[] = [];
     const agents: AgentSpecification[] = [];
     
-    // Create tasks based on required specializations
-    let taskId = 1;
+    // Create objectives based on required specializations
+    let objectiveId = 1;
     for (const specialization of complexityAnalysis.requiredSpecializations) {
-      const task: TaskBreakdown = {
-        id: `task_${taskId}`,
+      const objective: ObjectiveBreakdown = {
+        id: `objective_${objectiveId}`,
         title: `${specialization} Implementation`,
         description: `Implement ${specialization} components for: ${request.objective}`,
-        taskType: this.mapSpecializationToTaskType(specialization),
+        objectiveType: this.mapSpecializationToObjectiveType(specialization),
         priority: specialization === 'architect' ? 10 : 5,
         estimatedDuration: Math.round(complexityAnalysis.estimatedDuration / complexityAnalysis.requiredSpecializations.length),
-        dependencies: specialization === 'architect' ? [] : ['task_1'], // Most tasks depend on architecture
+        dependencies: specialization === 'architect' ? [] : ['objective_1'], // Most objectives depend on architecture
         requiredCapabilities: this.getCapabilitiesForSpecialization(specialization),
         assignedAgentType: specialization,
         complexity: complexityAnalysis.complexityLevel,
@@ -517,7 +517,7 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
         deliverables: this.getDeliverablesForSpecialization(specialization),
         acceptanceCriteria: this.getAcceptanceCriteriaForSpecialization(specialization)
       };
-      tasks.push(task);
+      objectives.push(objective);
       
       // Create corresponding agent specification
       const agent: AgentSpecification = {
@@ -525,7 +525,7 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
         role: this.getRoleForSpecialization(specialization),
         responsibilities: this.getResponsibilitiesForSpecialization(specialization),
         requiredCapabilities: this.getCapabilitiesForSpecialization(specialization),
-        taskAssignments: [`task_${taskId}`],
+        objectiveAssignments: [`objective_${objectiveId}`],
         coordinationRequirements: this.getCoordinationRequirementsForSpecialization(specialization),
         dependsOn: specialization === 'architect' ? [] : ['architect'],
         priority: specialization === 'architect' ? 10 : 5,
@@ -533,7 +533,7 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
       };
       agents.push(agent);
       
-      taskId++;
+      objectiveId++;
     }
 
     const executionPlan: ExecutionPlan = {
@@ -542,9 +542,9 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
       planningApproach: 'sequential-thinking-based',
       complexityAnalysis,
       
-      tasks,
-      taskDependencyGraph: this.buildDependencyGraph(tasks),
-      criticalPath: this.calculateCriticalPath(tasks),
+      objectives,
+      objectiveDependencyGraph: this.buildDependencyGraph(objectives),
+      criticalPath: this.calculateCriticalPath(objectives),
       
       agents,
       agentCoordination: {
@@ -576,14 +576,14 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
       },
       
       executionStrategy: {
-        phases: this.createExecutionPhases(tasks, agents),
-        qualityGates: ['task completion validation', 'integration testing', 'final review'],
-        completionCriteria: ['all tasks completed', 'all acceptance criteria met', 'quality gates passed'],
+        phases: this.createExecutionPhases(objectives, agents),
+        qualityGates: ['objective completion validation', 'integration testing', 'final review'],
+        completionCriteria: ['all objectives completed', 'all acceptance criteria met', 'quality gates passed'],
         rollbackStrategy: 'git-based rollback with incremental restore'
       },
       
       monitoringPlan: {
-        progressMetrics: ['task completion percentage', 'agent status', 'quality gate status'],
+        progressMetrics: ['objective completion percentage', 'agent status', 'quality gate status'],
         checkpoints: [
           { name: 'Architecture Review', timing: '25% completion', criteria: ['architecture approved', 'dependencies clear'] },
           { name: 'Implementation Review', timing: '75% completion', criteria: ['core functionality complete', 'testing started'] },
@@ -602,8 +602,8 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
   }
 
   // Helper methods for plan creation
-  private mapSpecializationToTaskType(specialization: string): TaskType {
-    const mapping: Record<string, TaskType> = {
+  private mapSpecializationToObjectiveType(specialization: string): ObjectiveType {
+    const mapping: Record<string, ObjectiveType> = {
       'frontend': 'feature',
       'backend': 'feature',
       'testing': 'testing',
@@ -714,20 +714,20 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
     return coordination[specialization] || ['coordinate with team as needed'];
   }
 
-  private buildDependencyGraph(tasks: TaskBreakdown[]): Record<string, string[]> {
+  private buildDependencyGraph(objectives: ObjectiveBreakdown[]): Record<string, string[]> {
     const graph: Record<string, string[]> = {};
-    for (const task of tasks) {
-      graph[task.id] = task.dependencies;
+    for (const objective of objectives) {
+      graph[objective.id] = objective.dependencies;
     }
     return graph;
   }
 
-  private calculateCriticalPath(tasks: TaskBreakdown[]): string[] {
+  private calculateCriticalPath(objectives: ObjectiveBreakdown[]): string[] {
     // Simplified critical path calculation - in reality would use proper algorithms
-    return tasks
+    return objectives
       .sort((a, b) => b.estimatedDuration - a.estimatedDuration)
-      .slice(0, Math.ceil(tasks.length / 2))
-      .map(task => task.id);
+      .slice(0, Math.ceil(objectives.length / 2))
+      .map(objective => objective.id);
   }
 
   private getAllRequiredCapabilities(specializations: string[]): string[] {
@@ -742,57 +742,57 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
 
   private getModelRecommendations(
     specializations: string[],
-    complexityAnalysis: TaskComplexityAnalysis
+    complexityAnalysis: ObjectiveComplexityAnalysis
   ): Record<string, ModelType> {
     const recommendations: Record<string, ModelType> = {};
     for (const spec of specializations) {
       if (['architect', 'researcher'].includes(spec) || complexityAnalysis.complexityLevel === 'complex') {
         recommendations[spec] = complexityAnalysis.recommendedModel;
       } else {
-        recommendations[spec] = 'claude-3-7-sonnet-latest'; // Efficient model for simpler tasks
+        recommendations[spec] = 'claude-3-7-sonnet-latest'; // Efficient model for simpler objectives
       }
     }
     return recommendations;
   }
 
-  private createExecutionPhases(tasks: TaskBreakdown[], agents: AgentSpecification[]): Array<{
+  private createExecutionPhases(objectives: ObjectiveBreakdown[], agents: AgentSpecification[]): Array<{
     name: string;
     description: string;
-    tasks: string[];
+    objectives: string[];
     agents: string[];
     duration: number;
   }> {
     // Simplified phase creation - would be more sophisticated in real implementation
-    const architectTasks = tasks.filter(t => t.assignedAgentType === 'architect');
-    const implementationTasks = tasks.filter(t => t.assignedAgentType !== 'architect' && !['testing', 'documentation'].includes(t.assignedAgentType || ''));
-    const validationTasks = tasks.filter(t => ['testing', 'documentation'].includes(t.assignedAgentType || ''));
+    const architectObjectives = objectives.filter(o => o.assignedAgentType === 'architect');
+    const implementationObjectives = objectives.filter(o => o.assignedAgentType !== 'architect' && !['testing', 'documentation'].includes(o.assignedAgentType || ''));
+    const validationObjectives = objectives.filter(o => ['testing', 'documentation'].includes(o.assignedAgentType || ''));
     
     return [
       {
         name: 'Planning & Architecture',
         description: 'Establish architecture and detailed planning',
-        tasks: architectTasks.map(t => t.id),
+        objectives: architectObjectives.map(o => o.id),
         agents: agents.filter(a => a.agentType === 'architect').map(a => a.agentType),
-        duration: architectTasks.reduce((sum, task) => sum + task.estimatedDuration, 0)
+        duration: architectObjectives.reduce((sum, objective) => sum + objective.estimatedDuration, 0)
       },
       {
         name: 'Implementation',
         description: 'Core feature implementation',
-        tasks: implementationTasks.map(t => t.id),
+        objectives: implementationObjectives.map(o => o.id),
         agents: agents.filter(a => !['architect', 'testing', 'documentation'].includes(a.agentType)).map(a => a.agentType),
-        duration: Math.max(...implementationTasks.map(t => t.estimatedDuration)) // Parallel execution
+        duration: Math.max(...implementationObjectives.map(o => o.estimatedDuration)) // Parallel execution
       },
       {
         name: 'Validation & Documentation',
         description: 'Testing and documentation completion',
-        tasks: validationTasks.map(t => t.id),
+        objectives: validationObjectives.map(o => o.id),
         agents: agents.filter(a => ['testing', 'documentation'].includes(a.agentType)).map(a => a.agentType),
-        duration: Math.max(...validationTasks.map(t => t.estimatedDuration)) // Parallel execution
+        duration: Math.max(...validationObjectives.map(o => o.estimatedDuration)) // Parallel execution
       }
     ];
   }
 
-  private calculateConfidenceScore(complexityAnalysis: TaskComplexityAnalysis): number {
+  private calculateConfidenceScore(complexityAnalysis: ObjectiveComplexityAnalysis): number {
     // Simple confidence calculation based on complexity and risk factors
     let score = 0.8; // Base confidence
     
@@ -826,7 +826,7 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
           objective: request.objective,
           planningApproach: 'sequential-thinking',
           planningDuration,
-          taskCount: executionPlan.tasks.length,
+          objectiveCount: executionPlan.objectives.length,
           agentCount: executionPlan.agents.length,
           complexityLevel: executionPlan.complexityAnalysis.complexityLevel,
           confidenceScore: executionPlan.confidenceScore,
@@ -852,7 +852,7 @@ Start immediately with sequential_thinking() to analyze the objective and begin 
     
     insights.push(`Planning approach: ${executionPlan.planningApproach}`);
     insights.push(`Complexity level: ${executionPlan.complexityAnalysis.complexityLevel}`);
-    insights.push(`Total tasks created: ${executionPlan.tasks.length}`);
+    insights.push(`Total objectives created: ${executionPlan.objectives.length}`);
     insights.push(`Agent specializations required: ${executionPlan.agents.map(a => a.agentType).join(', ')}`);
     insights.push(`Estimated total duration: ${executionPlan.resourceEstimation.totalEstimatedDuration} minutes`);
     insights.push(`Parallel execution time: ${executionPlan.resourceEstimation.parallelExecutionTime} minutes`);

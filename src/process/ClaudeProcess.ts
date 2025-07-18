@@ -5,6 +5,8 @@ import { tmpdir, homedir } from "os";
 import { execSync, execFile } from "child_process";
 import { spawn } from "child_process";
 import { type SDKMessage } from "@anthropic-ai/claude-code";
+import { AgentPermissionManager } from "../utils/agentPermissions.js";
+import type { AgentType } from "../schemas/agents.js";
 
 export interface ClaudeSpawnConfig {
   workingDirectory: string;
@@ -19,6 +21,7 @@ export interface ClaudeSpawnConfig {
   systemPrompt?: string; // Agent-specific system prompt
   appendSystemPrompt?: string; // Additional post-task instructions
   agentType?: string; // For auto-generating append instructions
+  agentId?: string; // For process naming and identification
   roomId?: string; // For coordination-based append instructions
   additionalInstructions?: string; // High-priority instructions from orchestrator
   onSessionIdExtracted?: (sessionId: string) => Promise<void>; // Callback for session ID extraction
@@ -69,8 +72,31 @@ export class ClaudeProcess extends EventEmitter {
       return;
     }
 
+    // Set standardized process title for monitoring visibility
+    this.setProcessTitle();
+
     this.runPromise = this.executeQuery();
     return this.runPromise;
+  }
+
+  /**
+   * Set standardized process title: zmcp-<agenttype>-<goal>-<id>
+   */
+  private setProcessTitle(): void {
+    if (this.config.agentType && this.config.agentId) {
+      try {
+        const processTitle = AgentPermissionManager.generateProcessTitle(
+          this.config.agentType as AgentType,
+          this.config.agentId,
+          this.config.prompt
+        );
+        process.title = processTitle;
+        process.stderr.write(`Set process title: ${processTitle}\n`);
+      } catch (error) {
+        process.stderr.write(`Failed to set process title: ${error}\n`);
+        // Don't fail the process if title setting fails
+      }
+    }
   }
 
   private async executeQuery(): Promise<void> {
@@ -276,9 +302,14 @@ export class ClaudeProcess extends EventEmitter {
     // Skip permission prompts
     args.push('--dangerously-skip-permissions');
     
-    // Build the final prompt with system prompts embedded
-    const finalPrompt = this.buildFinalPrompt();
-    args.push(finalPrompt);
+    // Add append system prompt if available
+    const appendSystemPrompt = this.buildAppendSystemPrompt();
+    if (appendSystemPrompt) {
+      args.push('--append-system-prompt', appendSystemPrompt);
+    }
+    
+    // Build the user prompt (no longer embedding system prompts)
+    args.push(this.config.prompt);
     
     return args;
   }
@@ -326,6 +357,12 @@ export class ClaudeProcess extends EventEmitter {
     // Skip permission prompts
     args.push('--dangerously-skip-permissions');
     
+    // Add append system prompt if available
+    const appendSystemPrompt = this.buildAppendSystemPrompt();
+    if (appendSystemPrompt) {
+      args.push('--append-system-prompt', appendSystemPrompt);
+    }
+    
     // Note: No prompt argument - we'll send it via stdin
     
     return args;
@@ -336,11 +373,11 @@ export class ClaudeProcess extends EventEmitter {
    */
   private buildFinalPrompt(): string {
     const systemPrompt = this.buildSystemPrompt();
-    const appendSystemPrompt = this.buildAppendSystemPrompt();
     
     // If we have system prompts, format them properly
-    if (systemPrompt || appendSystemPrompt) {
-      return this.formatPromptWithSystemPrompt(systemPrompt, this.config.prompt, appendSystemPrompt);
+    // Note: appendSystemPrompt is now handled via --append-system-prompt CLI flag
+    if (systemPrompt) {
+      return this.formatPromptWithSystemPrompt(systemPrompt, this.config.prompt);
     }
     
     // Otherwise just return the user prompt
@@ -514,17 +551,12 @@ export class ClaudeProcess extends EventEmitter {
     this.emit('sessionIdExtracted', { sessionId, pid: this.pid });
   }
 
-  private formatPromptWithSystemPrompt(systemPrompt: string, userPrompt: string, appendSystemPrompt?: string): string {
+  private formatPromptWithSystemPrompt(systemPrompt: string, userPrompt: string): string {
     const parts: string[] = [];
     
     // Add system prompt first
     if (systemPrompt.trim()) {
       parts.push(`<system>\n${systemPrompt.trim()}\n</system>`);
-    }
-    
-    // Add append system prompt if provided
-    if (appendSystemPrompt && appendSystemPrompt.trim()) {
-      parts.push(`<system>\n${appendSystemPrompt.trim()}\n</system>`);
     }
     
     // Add user prompt

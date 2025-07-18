@@ -3,7 +3,7 @@ import { sqliteTable, text, real } from 'drizzle-orm/sqlite-core';
 import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { agentSessions } from './agents';
-import { tasks } from './tasks';
+import { objectives } from './objectives';
 
 // Zod v4 schemas for validation
 export const errorTypeSchema = z.enum([
@@ -24,7 +24,7 @@ export const errorTypeSchema = z.enum([
 export const errorCategorySchema = z.enum([
   'mcp_tool',
   'agent_spawn',
-  'task_execution',
+  'objective_execution',
   'web_scraping',
   'database',
   'communication',
@@ -69,9 +69,9 @@ export const errorLogs = sqliteTable('error_logs', {
   id: text('id').primaryKey(),
   repositoryPath: text('repositoryPath').notNull(),
   agentId: text('agentId'),
-  taskId: text('taskId'),
+  objectiveId: text('objectiveId'),
   errorType: text('errorType', { enum: ['runtime', 'compilation', 'network', 'filesystem', 'authentication', 'permission', 'validation', 'configuration', 'dependency', 'timeout', 'memory', 'system'] }).notNull(),
-  errorCategory: text('errorCategory', { enum: ['mcp_tool', 'agent_spawn', 'task_execution', 'web_scraping', 'database', 'communication', 'file_operation', 'external_service', 'user_input', 'system_resource'] }).notNull(),
+  errorCategory: text('errorCategory', { enum: ['mcp_tool', 'agent_spawn', 'objective_execution', 'web_scraping', 'database', 'communication', 'file_operation', 'external_service', 'user_input', 'system_resource'] }).notNull(),
   errorMessage: text('errorMessage').notNull(),
   errorDetails: text('errorDetails'),
   context: text('context', { mode: 'json' }).$type<Record<string, unknown>>(),
@@ -89,7 +89,7 @@ export const toolCallLogs = sqliteTable('tool_call_logs', {
   id: text('id').primaryKey(),
   repositoryPath: text('repositoryPath').notNull(),
   agentId: text('agentId').notNull(),
-  taskId: text('taskId'),
+  objectiveId: text('objectiveId'),
   toolName: text('toolName').notNull(),
   parameters: text('parameters', { mode: 'json' }).$type<Record<string, unknown>>(),
   result: text('result', { mode: 'json' }).$type<Record<string, unknown>>(),
@@ -105,9 +105,9 @@ export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
     fields: [errorLogs.agentId],
     references: [agentSessions.id],
   }),
-  task: one(tasks, {
-    fields: [errorLogs.taskId],
-    references: [tasks.id],
+  objective: one(objectives, {
+    fields: [errorLogs.objectiveId],
+    references: [objectives.id],
   }),
 }));
 
@@ -116,9 +116,9 @@ export const toolCallLogsRelations = relations(toolCallLogs, ({ one }) => ({
     fields: [toolCallLogs.agentId],
     references: [agentSessions.id],
   }),
-  task: one(tasks, {
-    fields: [toolCallLogs.taskId],
-    references: [tasks.id],
+  objective: one(objectives, {
+    fields: [toolCallLogs.objectiveId],
+    references: [objectives.id],
   }),
 }));
 
@@ -145,9 +145,9 @@ export type ErrorLog = {
   id: string;
   repositoryPath: string;
   agentId?: string;
-  taskId?: string;
+  objectiveId?: string;
   errorType: 'runtime' | 'compilation' | 'network' | 'filesystem' | 'authentication' | 'permission' | 'validation' | 'configuration' | 'dependency' | 'timeout' | 'memory' | 'system';
-  errorCategory: 'mcp_tool' | 'agent_spawn' | 'task_execution' | 'web_scraping' | 'database' | 'communication' | 'file_operation' | 'external_service' | 'user_input' | 'system_resource';
+  errorCategory: 'mcp_tool' | 'agent_spawn' | 'objective_execution' | 'web_scraping' | 'database' | 'communication' | 'file_operation' | 'external_service' | 'user_input' | 'system_resource';
   errorMessage: string;
   errorDetails?: string;
   context?: Record<string, unknown>;
@@ -171,7 +171,7 @@ export type ToolCallLog = {
   id: string;
   repositoryPath: string;
   agentId: string;
-  taskId?: string;
+  objectiveId?: string;
   toolName: string;
   parameters?: Record<string, unknown>;
   result?: Record<string, unknown>;
@@ -197,7 +197,7 @@ export type ToolCallStatus = z.infer<typeof toolCallStatusSchema>;
 export const errorLogFilterSchema = z.object({
   repositoryPath: z.string().optional(),
   agentId: z.string().optional(),
-  taskId: z.string().optional(),
+  objectiveId: z.string().optional(),
   errorType: errorTypeSchema.optional(),
   errorCategory: errorCategorySchema.optional(),
   resolutionStatus: resolutionStatusSchema.optional(),
@@ -215,7 +215,7 @@ export const errorLogFilterSchema = z.object({
 export const toolCallLogFilterSchema = z.object({
   repositoryPath: z.string().optional(),
   agentId: z.string().optional(),
-  taskId: z.string().optional(),
+  objectiveId: z.string().optional(),
   toolName: z.string().optional(),
   status: toolCallStatusSchema.optional(),
   minExecutionTime: z.number().min(0).optional(),
@@ -229,7 +229,7 @@ export const toolCallLogFilterSchema = z.object({
 export const logErrorRequestSchema = z.object({
   repositoryPath: z.string().min(1),
   agentId: z.string().min(1).optional(),
-  taskId: z.string().min(1).optional(),
+  objectiveId: z.string().min(1).optional(),
   errorType: errorTypeSchema,
   errorCategory: errorCategorySchema,
   errorMessage: z.string().min(1).max(8192),
@@ -243,7 +243,7 @@ export const logErrorRequestSchema = z.object({
 export const logToolCallRequestSchema = z.object({
   repositoryPath: z.string().min(1),
   agentId: z.string().min(1),
-  taskId: z.string().min(1).optional(),
+  objectiveId: z.string().min(1).optional(),
   toolName: z.string().min(1).max(200),
   parameters: toolParametersSchema,
   result: toolResultSchema,

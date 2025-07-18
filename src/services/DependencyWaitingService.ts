@@ -1,5 +1,5 @@
 import { DatabaseManager } from '../database/index.js';
-import { AgentService, TaskService } from './index.js';
+import { AgentService, ObjectiveService } from './index.js';
 import { eventBus } from './EventBus.js';
 import { Logger } from '../utils/logger.js';
 import type { AgentStatus } from '../schemas/index.js';
@@ -13,11 +13,11 @@ export interface DependencyWaitResult {
   waitDuration: number;
 }
 
-export interface TaskDependencyWaitResult {
+export interface ObjectiveDependencyWaitResult {
   success: boolean;
-  completedTasks: string[];
-  failedTasks: string[];
-  timeoutTasks: string[];
+  completedObjectives: string[];
+  failedObjectives: string[];
+  timeoutObjectives: string[];
   message: string;
   waitDuration: number;
 }
@@ -30,16 +30,16 @@ export interface CompletionEvent {
 }
 
 /**
- * Service for handling agent and task dependency waiting using EventBus
+ * Service for handling agent and objective dependency waiting using EventBus
  */
 export class DependencyWaitingService {
   private agentService: AgentService;
-  private taskService: TaskService;
+  private objectiveService: ObjectiveService;
   private logger: Logger;
 
   constructor(private db: DatabaseManager) {
     this.agentService = new AgentService(db);
-    this.taskService = new TaskService(db);
+    this.objectiveService = new ObjectiveService(db);
     this.logger = new Logger('DependencyWaitingService');
   }
 
@@ -118,60 +118,60 @@ export class DependencyWaitingService {
   }
 
   /**
-   * Wait for task dependencies to complete
+   * Wait for objective dependencies to complete
    */
-  async waitForTaskDependencies(
-    taskId: string,
+  async waitForObjectiveDependencies(
+    objectiveId: string,
     repositoryPath: string,
     options: {
       timeout?: number;
       waitForAnyFailure?: boolean;
     } = {}
-  ): Promise<TaskDependencyWaitResult> {
+  ): Promise<ObjectiveDependencyWaitResult> {
     const { timeout = 600000, waitForAnyFailure = true } = options;
     const startTime = Date.now();
 
     try {
-      // Get task dependencies
-      const task = await this.taskService.getTask(taskId);
-      if (!task) {
-        throw new Error(`Task ${taskId} not found`);
+      // Get objective dependencies
+      const objective = await this.objectiveService.getObjective(objectiveId);
+      if (!objective) {
+        throw new Error(`Objective ${objectiveId} not found`);
       }
 
-      const dependencies = (task.requirements?.dependencies as string[]) || [];
+      const dependencies = (objective.requirements?.dependencies as string[]) || [];
       if (dependencies.length === 0) {
         return {
           success: true,
-          completedTasks: [],
-          failedTasks: [],
-          timeoutTasks: [],
-          message: 'No task dependencies to wait for',
+          completedObjectives: [],
+          failedObjectives: [],
+          timeoutObjectives: [],
+          message: 'No objective dependencies to wait for',
           waitDuration: 0
         };
       }
 
-      this.logger.info('Waiting for task dependencies', {
-        taskId,
+      this.logger.info('Waiting for objective dependencies', {
+        objectiveId,
         dependencies,
         repositoryPath
       });
 
-      // Wait for task completion events
-      const completionPromises = dependencies.map(depTaskId =>
-        this.waitForTaskCompletion(depTaskId, repositoryPath, timeout)
+      // Wait for objective completion events
+      const completionPromises = dependencies.map(depObjectiveId =>
+        this.waitForObjectiveCompletion(depObjectiveId, repositoryPath, timeout)
       );
 
       const results = await Promise.allSettled(completionPromises);
-      return this.analyzeTaskCompletionResults(results, dependencies, Date.now() - startTime);
+      return this.analyzeObjectiveCompletionResults(results, dependencies, Date.now() - startTime);
 
     } catch (error) {
-      this.logger.error('Error in task dependency waiting', { error, taskId });
+      this.logger.error('Error in objective dependency waiting', { error, objectiveId });
       return {
         success: false,
-        completedTasks: [],
-        failedTasks: [],
-        timeoutTasks: [],
-        message: `Task dependency waiting error: ${error}`,
+        completedObjectives: [],
+        failedObjectives: [],
+        timeoutObjectives: [],
+        message: `Objective dependency waiting error: ${error}`,
         waitDuration: Date.now() - startTime
       };
     }
@@ -240,8 +240,8 @@ export class DependencyWaitingService {
         }
       }, { repositoryPath });
 
-      // Listen for task completion reports (secondary signal)
-      const progressSubscriptionId = eventBus.subscribe('task_completed', (data: any) => {
+      // Listen for objective completion reports (secondary signal)
+      const progressSubscriptionId = eventBus.subscribe('objective_completed', (data: any) => {
         if (data.completedBy === agentId && data.repositoryPath === repositoryPath) {
           clearTimeout(timeoutId);
           eventBus.unsubscribe(statusSubscriptionId);
@@ -254,7 +254,7 @@ export class DependencyWaitingService {
             source: 'progress_report',
             metadata: {
               results: data.results,
-              taskId: data.taskId
+              objectiveId: data.objectiveId
             }
           });
         }
@@ -263,31 +263,31 @@ export class DependencyWaitingService {
   }
 
   /**
-   * Wait for a single task to complete
+   * Wait for a single objective to complete
    */
-  private async waitForTaskCompletion(
-    taskId: string,
+  private async waitForObjectiveCompletion(
+    objectiveId: string,
     repositoryPath: string,
     timeout: number
   ): Promise<CompletionEvent> {
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
-        eventBus.unsubscribe(taskSubscriptionId);
+        eventBus.unsubscribe(objectiveSubscriptionId);
         resolve({
-          id: taskId,
+          id: objectiveId,
           status: 'timeout',
           source: 'timeout',
           metadata: { timeoutDuration: timeout }
         });
       }, timeout);
 
-      const taskSubscriptionId = eventBus.subscribe('task_completed', (data: any) => {
-        if (data.taskId === taskId && data.repositoryPath === repositoryPath) {
+      const objectiveSubscriptionId = eventBus.subscribe('objective_completed', (data: any) => {
+        if (data.objectiveId === objectiveId && data.repositoryPath === repositoryPath) {
           clearTimeout(timeoutId);
-          eventBus.unsubscribe(taskSubscriptionId);
+          eventBus.unsubscribe(objectiveSubscriptionId);
           
           resolve({
-            id: taskId,
+            id: objectiveId,
             status: 'completed',
             source: 'progress_report',
             metadata: {
@@ -385,19 +385,19 @@ export class DependencyWaitingService {
   }
 
   /**
-   * Analyze task completion results from Promise.allSettled
+   * Analyze objective completion results from Promise.allSettled
    */
-  private analyzeTaskCompletionResults(
+  private analyzeObjectiveCompletionResults(
     results: PromiseSettledResult<CompletionEvent>[],
-    originalTaskIds: string[],
+    originalObjectiveIds: string[],
     waitDuration: number
-  ): TaskDependencyWaitResult {
+  ): ObjectiveDependencyWaitResult {
     const completed: string[] = [];
     const failed: string[] = [];
     const timeout: string[] = [];
 
     results.forEach((result, index) => {
-      const taskId = originalTaskIds[index];
+      const objectiveId = originalObjectiveIds[index];
       
       if (result.status === 'fulfilled') {
         const event = result.value;
@@ -409,7 +409,7 @@ export class DependencyWaitingService {
           failed.push(event.id);
         }
       } else {
-        failed.push(taskId);
+        failed.push(objectiveId);
       }
     });
 
@@ -417,19 +417,19 @@ export class DependencyWaitingService {
     let message = '';
     
     if (success) {
-      message = `All ${completed.length} task dependencies completed successfully`;
+      message = `All ${completed.length} objective dependencies completed successfully`;
     } else {
       const issues: string[] = [];
       if (failed.length > 0) issues.push(`${failed.length} failed`);
       if (timeout.length > 0) issues.push(`${timeout.length} timed out`);
-      message = `Task dependency issues: ${issues.join(', ')}`;
+      message = `Objective dependency issues: ${issues.join(', ')}`;
     }
 
     return {
       success,
-      completedTasks: completed,
-      failedTasks: failed,
-      timeoutTasks: timeout,
+      completedObjectives: completed,
+      failedObjectives: failed,
+      timeoutObjectives: timeout,
       message,
       waitDuration
     };
@@ -458,7 +458,7 @@ export class DependencyWaitingService {
             agentId,
             status: agent.status,
             lastHeartbeat: agent.lastHeartbeat,
-            currentTask: (agent.agentMetadata as any)?.currentTask?.description,
+            currentObjective: (agent.agentMetadata as any)?.currentObjective?.description,
             progress: (agent.agentMetadata as any)?.progress
           });
         } else {

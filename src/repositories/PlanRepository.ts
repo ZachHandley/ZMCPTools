@@ -14,7 +14,6 @@ import {
   type PlanFilter,
   type PlanSection,
   type PlanSectionUpdate,
-  type PlanTodoUpdate,
 } from '../schemas/index.js';
 import { ulid } from 'ulidx';
 

@@ -1,0 +1,39 @@
+{
+  "name": "zmcp-tools-dashboard",
+  "version": "1.0.0",
+  "description": "Web dashboard for ZMCPTools - Real-time monitoring and orchestration interface",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@astrojs/node": "^9.3.0",
+    "@astrojs/vue": "^5.1.0",
+    "@tailwindcss/vite": "^4.1.11",
+    "appwrite-utils": "^1.2.0",
+    "astro": "^5.11.1",
+    "better-sqlite3": "^12.2.0",
+    "drizzle-orm": "^0.44.2",
+    "drizzle-zod": "^0.8.2",
+    "marked": "^16.0.0",
+    "sweetalert2": "^11.22.2",
+    "tailwindcss": "^4.1.11",
+    "ulidx": "^2.4.1",
+    "vue": "^3.5.13",
+    "ws": "^8.18.0",
+    "zastro-websockets-node": "9.3.0-1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "@typescript-eslint/eslint-plugin": "^8.36.0",
+    "@typescript-eslint/parser": "^8.36.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3"
+  }
+}

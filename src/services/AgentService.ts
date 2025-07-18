@@ -20,7 +20,7 @@ export interface CreateAgentRequest {
   agentName: string;
   agentType?: AgentType;
   repositoryPath: string;
-  taskDescription?: string;
+  objectiveDescription?: string;
   capabilities?: string[];
   dependsOn?: string[];
   metadata?: Record<string, any>;
@@ -192,9 +192,9 @@ export class AgentService {
       repositoryPath: request.repositoryPath,
       repositoryPathType: typeof request.repositoryPath,
       repositoryPathValue: request.repositoryPath,
-      hasTaskDescription: !!request.taskDescription,
-      taskDescriptionType: typeof request.taskDescription,
-      taskDescriptionLength: request.taskDescription?.length,
+      hasObjectiveDescription: !!request.objectiveDescription,
+      objectiveDescriptionType: typeof request.objectiveDescription,
+      objectiveDescriptionLength: request.objectiveDescription?.length,
       capabilities: request.capabilities,
       capabilitiesType: typeof request.capabilities,
       capabilitiesIsArray: Array.isArray(request.capabilities),
@@ -238,8 +238,8 @@ export class AgentService {
         this.logger.info(`Auto-creating room for agent ${agentId} (type: ${agentType})`);
         
         try {
-          // Generate room name using AgentPermissionManager
-          const roomName = AgentPermissionManager.generateRoomName(agentType, agentId);
+          // Generate room name using AgentPermissionManager with task description
+          const roomName = AgentPermissionManager.generateRoomName(agentType, agentId, request.objectiveDescription);
           
           // Create room via CommunicationService
           const newRoom = await this.communicationService.createRoom({
@@ -291,7 +291,7 @@ export class AgentService {
       toolPermissions: toolPermissions,
       roomId: roomId,
       agentMetadata: {
-        taskDescription: request.taskDescription,
+        objectiveDescription: request.objectiveDescription,
         dependsOn: request.dependsOn || [],
         ...request.metadata
       }
@@ -336,16 +336,16 @@ export class AgentService {
     }
 
     // If we have a task description, spawn the actual Claude process
-    if (request.taskDescription) {
+    if (request.objectiveDescription) {
       this.logger.info(`Spawning Claude process for agent ${agentId}`, {
         agentId: agentId,
         agentName: agent.agentName,
         repositoryPath: agent.repositoryPath,
-        taskDescription: request.taskDescription
+        objectiveDescription: request.objectiveDescription
       });
       
       try {
-        const claudeProcess = await this.spawnClaudeProcess(agent, request.taskDescription, request.claudeConfig);
+        const claudeProcess = await this.spawnClaudeProcess(agent, request.objectiveDescription, request.claudeConfig);
         
         this.logger.info(`Claude process spawned successfully for agent ${agentId}`, {
           agentId: agentId,
@@ -392,7 +392,7 @@ export class AgentService {
 
   private async spawnClaudeProcess(
     agent: AgentSession, 
-    taskDescription: string, 
+    objectiveDescription: string, 
     claudeConfig?: Partial<ClaudeSpawnConfig>
   ) {
     this.logger.info(`Starting Claude process spawn for agent ${agent.id}`, {
@@ -400,10 +400,10 @@ export class AgentService {
       agentName: agent.agentName,
       repositoryPath: agent.repositoryPath,
       repositoryPathType: typeof agent.repositoryPath,
-      taskDescription: taskDescription
+      objectiveDescription: objectiveDescription
     });
     
-    const prompt = this.generateAgentPrompt(agent, taskDescription);
+    const prompt = this.generateAgentPrompt(agent, objectiveDescription);
     
     // Validate and resolve working directory to absolute path
     let workingDirectory = PathUtils.resolveWorkingDirectory(
@@ -462,7 +462,7 @@ export class AgentService {
         const cacheService = new FoundationCacheService(this.db);
         foundationSessionId = await cacheService.getOrCreateFoundationSession(
           workingDirectory,
-          this.generateAgentContext(agent, taskDescription)
+          this.generateAgentContext(agent, objectiveDescription)
         );
         
         this.logger.info('Foundation session auto-created for agent', {
@@ -499,13 +499,14 @@ export class AgentService {
       allowedTools: allowedTools,
       disallowedTools: disallowedTools,
       agentType: agent.agentType,
+      agentId: agent.id, // Add agent ID for process naming
       roomId: agent.roomId,
       onSessionIdExtracted, // Add session ID callback
       environmentVars: {
         AGENT_ID: agent.id,
         AGENT_NAME: agent.agentName,
         AGENT_TYPE: agent.agentType || 'general_agent',
-        TASK_DESCRIPTION: taskDescription,
+        TASK_DESCRIPTION: objectiveDescription,
         REPOSITORY_PATH: workingDirectory,
         ROOM_ID: agent.roomId || '',
         FOUNDATION_SESSION_ID: foundationSessionId || ''
@@ -552,13 +553,13 @@ export class AgentService {
     }
   }
 
-  private generateAgentPrompt(agent: AgentSession, taskDescription: string): string {
+  private generateAgentPrompt(agent: AgentSession, objectiveDescription: string): string {
     const agentType = agent.agentType || 'general_agent';
     const hasRoom = !!agent.roomId;
     
     // Special handling for architect agents
     if (agentType === 'architect' || agentType === 'architect_agent') {
-      return this.generateArchitectAgentPrompt(agent, taskDescription);
+      return this.generateArchitectAgentPrompt(agent, objectiveDescription);
     }
     
     let prompt = `You are a specialized ${agentType.replace('_', ' ')} agent (${agent.agentName}) with focused capabilities and sequential thinking.
@@ -566,7 +567,7 @@ export class AgentService {
 AGENT DETAILS:
 - Agent ID: ${agent.id}
 - Agent Type: ${agentType}
-- Task: ${taskDescription}
+- Task: ${objectiveDescription}
 - Repository: ${agent.repositoryPath}`;
 
     if (hasRoom) {
@@ -651,7 +652,7 @@ CRITICAL: You are an autonomous specialist with sequential thinking capabilities
     return prompt;
   }
 
-  private generateArchitectAgentPrompt(agent: AgentSession, taskDescription: string): string {
+  private generateArchitectAgentPrompt(agent: AgentSession, objectiveDescription: string): string {
     const hasRoom = !!agent.roomId;
     
     let prompt = `🏗️ ARCHITECT AGENT - Strategic Orchestration Leader (${agent.agentName})
@@ -659,7 +660,7 @@ CRITICAL: You are an autonomous specialist with sequential thinking capabilities
 AGENT DETAILS:
 - Agent ID: ${agent.id}
 - Agent Type: architect
-- Task: ${taskDescription}
+- Task: ${objectiveDescription}
 - Repository: ${agent.repositoryPath}`;
 
     if (hasRoom) {
@@ -1114,7 +1115,7 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
       agentName: config.agentName,
       agentType: config.agentType,
       repositoryPath: config.repositoryPath,
-      taskDescription: config.prompt,
+      objectiveDescription: config.prompt,
       capabilities: config.capabilities,
       metadata: config.agentMetadata,
       claudeConfig: config.claudeConfig,
@@ -1189,12 +1190,12 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
   /**
    * Generates context for foundation caching session
    */
-  private generateAgentContext(agent: AgentSession, taskDescription: string): any {
+  private generateAgentContext(agent: AgentSession, objectiveDescription: string): any {
     return {
       agentId: agent.id,
       agentName: agent.agentName,
       agentType: agent.agentType,
-      taskDescription,
+      objectiveDescription,
       capabilities: agent.capabilities,
       repositoryPath: agent.repositoryPath,
       timestamp: new Date().toISOString(),
@@ -1354,13 +1355,13 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
   async continueAgentSession(
     agentId: string,
     additionalInstructions?: string,
-    newTaskDescription?: string,
+    newObjectiveDescription?: string,
     preserveContext: boolean = true,
     updateMetadata?: Record<string, any>
   ): Promise<AgentSession> {
     this.logger.info(`Continuing agent session for ${agentId}`, {
       hasAdditionalInstructions: !!additionalInstructions,
-      hasNewTask: !!newTaskDescription,
+      hasNewTask: !!newObjectiveDescription,
       preserveContext,
       hasMetadataUpdates: !!updateMetadata
     });
@@ -1391,8 +1392,8 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
     }
 
     // Determine task description for the resumed session
-    const taskDescription = newTaskDescription || 
-      (agent.agentMetadata?.taskDescription as string) || 
+    const objectiveDescription = newObjectiveDescription || 
+      (agent.agentMetadata?.objectiveDescription as string) || 
       'Continue with previous task';
 
     // Set up session ID callback to update the agent with any new session ID
@@ -1417,7 +1418,7 @@ CRITICAL: You are an autonomous architect with advanced sequential thinking capa
 
     // Spawn the Claude process with resumed session
     try {
-      const claudeProcess = await this.spawnClaudeProcess(agent, taskDescription, claudeConfig);
+      const claudeProcess = await this.spawnClaudeProcess(agent, objectiveDescription, claudeConfig);
       
       // Update agent status and PID
       await this.agentRepo.updateStatus(agentId, 'active');

@@ -5,7 +5,7 @@
  */
 
 import * as lancedb from '@lancedb/lancedb';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { Logger } from '../utils/logger.js';
@@ -227,6 +227,9 @@ export class LanceDBService {
   private logger: Logger;
   private config: LanceDBConfig;
   private dataPath: string;
+  private initializationPromise: Promise<void> | null = null;
+  private operationQueue: Map<string, Promise<any>> = new Map();
+  private connectionLock: Promise<void> | null = null;
 
   constructor(
     private db: DatabaseManager,
@@ -260,24 +263,104 @@ export class LanceDBService {
   }
 
   /**
-   * Initialize connection to LanceDB
+   * Initialize connection to LanceDB with concurrent access protection
    */
   async initialize(): Promise<{ success: boolean; error?: string }> {
-    try {
-      if (this.connection) {
-        return { success: true };
-      }
+    // If already initializing, wait for the existing initialization
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+      return { success: true };
+    }
 
-      // Connect to LanceDB using the current API
-      this.connection = await lancedb.connect(this.dataPath);
+    // If already initialized, return success
+    if (this.connection) {
+      return { success: true };
+    }
+
+    // Create initialization promise to prevent concurrent initialization
+    this.initializationPromise = this._performInitialization();
+    
+    try {
+      await this.initializationPromise;
+      return { success: true };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, error: errorMsg };
+    } finally {
+      this.initializationPromise = null;
+    }
+  }
+
+  private async _performInitialization(): Promise<void> {
+    const lockFile = join(this.dataPath, '.init.lock');
+    const pid = process.pid;
+    const startTime = Date.now();
+    
+    try {
+      // Check if another process is initializing
+      if (existsSync(lockFile)) {
+        const lockData = readFileSync(lockFile, 'utf-8');
+        const lockInfo = JSON.parse(lockData);
+        const lockAge = Date.now() - lockInfo.timestamp;
+        
+        // If lock is older than 60 seconds, assume the process died
+        if (lockAge > 60000) {
+          this.logger.warn(`Removing stale lock file from PID ${lockInfo.pid} (age: ${lockAge}ms)`);
+          unlinkSync(lockFile);
+        } else {
+          // Wait for the other process to finish
+          this.logger.info(`Waiting for initialization by PID ${lockInfo.pid}`);
+          await this.waitForLockRelease(lockFile, 30000);
+        }
+      }
+      
+      // Create lock file
+      writeFileSync(lockFile, JSON.stringify({ pid, timestamp: Date.now() }));
+      
+      // Add timeout to prevent indefinite hanging
+      const timeout = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('LanceDB connection timeout after 30 seconds')), 30000)
+      );
+
+      // Connect to LanceDB with timeout
+      this.connection = await Promise.race([
+        lancedb.connect(this.dataPath),
+        timeout
+      ]);
+      
       this.logger.info('Connected to LanceDB', { path: this.dataPath });
 
-      return { success: true };
+      // Pre-initialize the embedding function to avoid delays during first use
+      await this.embeddingFunction.initialize();
+      this.logger.info('HuggingFace embedding function pre-initialized');
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error('Failed to initialize LanceDB', { error: errorMsg });
-      return { success: false, error: errorMsg };
+      throw error;
+    } finally {
+      // Always remove lock file
+      try {
+        if (existsSync(lockFile)) {
+          const lockData = readFileSync(lockFile, 'utf-8');
+          const lockInfo = JSON.parse(lockData);
+          if (lockInfo.pid === pid) {
+            unlinkSync(lockFile);
+          }
+        }
+      } catch (e) {
+        this.logger.warn('Failed to remove lock file', e);
+      }
+    }
+  }
+
+  private async waitForLockRelease(lockFile: string, timeout: number): Promise<void> {
+    const startTime = Date.now();
+    while (existsSync(lockFile)) {
+      if (Date.now() - startTime > timeout) {
+        throw new Error('Timeout waiting for initialization lock release');
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
 
@@ -339,50 +422,66 @@ export class LanceDBService {
     collectionName: string,
     documents: VectorDocument[]
   ): Promise<{ success: boolean; addedCount: number; error?: string }> {
-    try {
-      // Ensure collection exists
-      const createResult = await this.createCollection(collectionName);
-      if (!createResult.success) {
-        return { success: false, addedCount: 0, error: createResult.error };
+    return this.withOperation(`add-${collectionName}`, async () => {
+      try {
+        // Ensure collection exists
+        const createResult = await this.createCollection(collectionName);
+        if (!createResult.success) {
+          return { success: false, addedCount: 0, error: createResult.error };
+        }
+
+        const table = this.tables.get(collectionName)!;
+
+        // Generate embeddings for all documents with timeout
+        const embedTimeout = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error(`Embedding generation timeout after ${documents.length * 2000}ms`)), documents.length * 2000)
+        );
+        
+        const contents = documents.map(doc => doc.content);
+        const embeddings = await Promise.race([
+          this.embeddingFunction.embed(contents),
+          embedTimeout
+        ]);
+
+        // Convert to LanceDB format
+        const lanceData = documents.map((doc, index) => ({
+          id: doc.id,
+          content: doc.content,
+          vector: embeddings[index],
+          metadata: JSON.stringify({
+            type: doc.type || 'text',
+            collection: collectionName,
+            addedAt: new Date().toISOString(),
+            ...doc.metadata
+          })
+        }));
+
+        // Add to table with timeout
+        const addTimeout = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Document addition timeout after 20 seconds')), 20000)
+        );
+        
+        await Promise.race([
+          table.add(lanceData),
+          addTimeout
+        ]);
+        
+        this.logger.info(`Added ${documents.length} documents to collection ${collectionName}`);
+        return {
+          success: true,
+          addedCount: documents.length
+        };
+
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`Failed to add documents to ${collectionName}`, { error: errorMsg });
+        return {
+          success: false,
+          addedCount: 0,
+          error: errorMsg
+        };
       }
-
-      const table = this.tables.get(collectionName)!;
-
-      // Generate embeddings for all documents
-      const contents = documents.map(doc => doc.content);
-      const embeddings = await this.embeddingFunction.embed(contents);
-
-      // Convert to LanceDB format
-      const lanceData = documents.map((doc, index) => ({
-        id: doc.id,
-        content: doc.content,
-        vector: embeddings[index],
-        metadata: JSON.stringify({
-          type: doc.type || 'text',
-          collection: collectionName,
-          addedAt: new Date().toISOString(),
-          ...doc.metadata
-        })
-      }));
-
-      // Add to table
-      await table.add(lanceData);
-      
-      this.logger.info(`Added ${documents.length} documents to collection ${collectionName}`);
-      return {
-        success: true,
-        addedCount: documents.length
-      };
-
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to add documents to ${collectionName}`, { error: errorMsg });
-      return {
-        success: false,
-        addedCount: 0,
-        error: errorMsg
-      };
-    }
+    });
   }
 
   /**
@@ -782,6 +881,45 @@ export class LanceDBService {
   }
 
   /**
+   * Wrap operations to prevent concurrent access issues
+   */
+  private async withOperation<T>(
+    operationKey: string, 
+    operation: () => Promise<T>,
+    timeoutMs: number = 30000
+  ): Promise<T> {
+    // Check if operation is already in progress
+    const existingOperation = this.operationQueue.get(operationKey);
+    if (existingOperation) {
+      this.logger.debug(`Waiting for existing operation: ${operationKey}`);
+      try {
+        await existingOperation;
+      } catch {
+        // Previous operation failed, continue with new one
+      }
+    }
+
+    // Create operation promise with timeout
+    const operationPromise = Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error(`Operation ${operationKey} timed out after ${timeoutMs}ms`)), timeoutMs)
+      )
+    ]);
+
+    // Store in queue
+    this.operationQueue.set(operationKey, operationPromise);
+
+    try {
+      const result = await operationPromise;
+      return result;
+    } finally {
+      // Clean up
+      this.operationQueue.delete(operationKey);
+    }
+  }
+
+  /**
    * Search for similar documents using vector similarity with optional metadata filtering
    */
   async searchSimilar(
@@ -791,78 +929,94 @@ export class LanceDBService {
     threshold: number = 0.7,
     metadataFilter?: Record<string, any>
   ): Promise<VectorSearchResult[]> {
-    try {
-      // Ensure collection exists
-      const createResult = await this.createCollection(collectionName);
-      if (!createResult.success) {
-        throw new Error(`Collection access failed: ${createResult.error}`);
-      }
-
-      const table = this.tables.get(collectionName)!;
-
-      // Generate embedding for query
-      const queryEmbedding = await this.embeddingFunction.embed([query]);
-      const queryVector = queryEmbedding[0];
-
-      // Build search query with optional metadata filtering
-      let searchQuery = table.search(queryVector).limit(limit);
-
-      // Add metadata filtering if provided
-      if (metadataFilter && Object.keys(metadataFilter).length > 0) {
-        const whereConditions: string[] = [];
-        for (const [key, value] of Object.entries(metadataFilter)) {
-          if (typeof value === 'string') {
-            const escapedValue = value.replace(/'/g, "''");
-            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${escapedValue}'`);
-          } else if (typeof value === 'number') {
-            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
-          } else if (typeof value === 'boolean') {
-            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
-          } else {
-            const jsonValue = JSON.stringify(value).replace(/'/g, "''");
-            whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${jsonValue}'`);
-          }
+    return this.withOperation(`search-${collectionName}-${query}`, async () => {
+      try {
+        // Ensure collection exists
+        const createResult = await this.createCollection(collectionName);
+        if (!createResult.success) {
+          throw new Error(`Collection access failed: ${createResult.error}`);
         }
-        const whereClause = whereConditions.join(' AND ');
-        searchQuery = searchQuery.where(whereClause);
-      }
 
-      // Perform vector similarity search
-      const results = await searchQuery.toArray();
+        const table = this.tables.get(collectionName)!;
 
-      // Convert to standard format and apply threshold
-      const searchResults: VectorSearchResult[] = results
-        .map((result: any) => {
-          let metadata = {};
-          try {
-            metadata = JSON.parse(result.metadata || '{}');
-          } catch (error) {
-            this.logger.warn('Failed to parse metadata', { metadata: result.metadata });
+        // Generate embedding for query with timeout
+        const embedTimeout = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Embedding generation timeout after 10 seconds')), 10000)
+        );
+        
+        const queryEmbedding = await Promise.race([
+          this.embeddingFunction.embed([query]),
+          embedTimeout
+        ]);
+        const queryVector = queryEmbedding[0];
+
+        // Build search query with optional metadata filtering
+        let searchQuery = table.search(queryVector).limit(limit);
+
+        // Add metadata filtering if provided
+        if (metadataFilter && Object.keys(metadataFilter).length > 0) {
+          const whereConditions: string[] = [];
+          for (const [key, value] of Object.entries(metadataFilter)) {
+            if (typeof value === 'string') {
+              const escapedValue = value.replace(/'/g, "''");
+              whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${escapedValue}'`);
+            } else if (typeof value === 'number') {
+              whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
+            } else if (typeof value === 'boolean') {
+              whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = ${value}`);
+            } else {
+              const jsonValue = JSON.stringify(value).replace(/'/g, "''");
+              whereConditions.push(`JSON_EXTRACT(metadata, '$.${key}') = '${jsonValue}'`);
+            }
           }
+          const whereClause = whereConditions.join(' AND ');
+          searchQuery = searchQuery.where(whereClause);
+        }
 
-          // LanceDB returns distance, convert to similarity score
-          const distance = result._distance || 0;
-          const score = Math.max(0, 1 - distance); // Convert distance to similarity
+        // Perform vector similarity search with timeout
+        const searchTimeout = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Vector search timeout after 15 seconds')), 15000)
+        );
+        
+        const results = await Promise.race([
+          searchQuery.toArray(),
+          searchTimeout
+        ]);
 
-          return {
-            id: result.id,
-            content: result.content,
-            metadata,
-            score,
-            distance
-          };
-        })
-        .filter(result => result.score >= threshold)
-        .sort((a, b) => b.score - a.score); // Sort by highest similarity
+        // Convert to standard format and apply threshold
+        const searchResults: VectorSearchResult[] = results
+          .map((result: any) => {
+            let metadata = {};
+            try {
+              metadata = JSON.parse(result.metadata || '{}');
+            } catch (error) {
+              this.logger.warn('Failed to parse metadata', { metadata: result.metadata });
+            }
 
-      this.logger.info(`Found ${searchResults.length} similar documents in ${collectionName}`);
-      return searchResults;
+            // LanceDB returns distance, convert to similarity score
+            const distance = result._distance || 0;
+            const score = Math.max(0, 1 - distance); // Convert distance to similarity
 
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Search failed in collection ${collectionName}`, { error: errorMsg });
-      throw new Error(`Search operation failed: ${errorMsg}`);
-    }
+            return {
+              id: result.id,
+              content: result.content,
+              metadata,
+              score,
+              distance
+            };
+          })
+          .filter(result => result.score >= threshold)
+          .sort((a, b) => b.score - a.score); // Sort by highest similarity
+
+        this.logger.info(`Found ${searchResults.length} similar documents in ${collectionName}`);
+        return searchResults;
+
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`Search failed in collection ${collectionName}`, { error: errorMsg });
+        throw new Error(`Search operation failed: ${errorMsg}`);
+      }
+    });
   }
 
   /**

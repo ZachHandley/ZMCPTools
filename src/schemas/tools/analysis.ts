@@ -5,7 +5,7 @@ import { z } from "zod";
 // ===============================================
 
 export const AnalyzeProjectStructureSchema = z.object({
-  project_path: z.string().default(".").describe("The path to the project directory to analyze. Defaults to current directory."),
+  project_path: z.string().optional().default(".").describe("Optional project path. If not provided, uses the agent's current working directory."),
   include_patterns: z.array(z.string()).default(["**/*"]).describe("Glob patterns for files to include in analysis. Defaults to all files."),
   exclude_patterns: z
     .array(z.string())
@@ -16,7 +16,7 @@ export const AnalyzeProjectStructureSchema = z.object({
 }).describe("Analyzes project structure and generates a comprehensive directory tree with file metadata. Creates cached analysis results and optionally generates summary files for AI optimization. Respects .claudeignore patterns and common ignore patterns.");
 
 export const GenerateProjectSummarySchema = z.object({
-  project_path: z.string().default(".").describe("The path to the project directory to analyze. Defaults to current directory."),
+  project_path: z.string().optional().default(".").describe("Optional project path. If not provided, uses the agent's current working directory."),
   include_readme: z.boolean().default(true).describe("Whether to extract description from README files (README.md, README.txt, etc.)."),
   include_package_info: z.boolean().default(true).describe("Whether to analyze package.json, requirements.txt, and other dependency files to detect framework and language."),
   include_git_info: z.boolean().default(true).describe("Whether to extract git repository information like branch, commits, and remotes."),

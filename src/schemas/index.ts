@@ -4,9 +4,10 @@ export * from './communication';
 export * from './logs';
 export * from './memories';
 export * from './scraping';
-export * from './tasks';
+export * from './objectives';
 export * from './plans';
 export * from './knowledge-graph';
+export * from './projects';
 
 // Re-export commonly used types for convenience
 export type {
@@ -30,18 +31,18 @@ export type {
 } from './agents';
 
 export type {
-  // Task types
-  Task,
-  NewTask,
-  TaskUpdate,
-  TaskDependency,
-  NewTaskDependency,
-  TaskType,
-  TaskStatus,
+  // Objective types
+  Objective,
+  NewObjective,
+  ObjectiveUpdate,
+  ObjectiveDependency,
+  NewObjectiveDependency,
+  ObjectiveType,
+  ObjectiveStatus,
   DependencyType,
-  TaskFilter,
-  TaskCreateRequest,
-} from './tasks';
+  ObjectiveFilter,
+  ObjectiveCreateRequest,
+} from './objectives';
 
 export type {
   // Plan types
@@ -56,7 +57,7 @@ export type {
   PlanFilter,
   PlanCreateRequest,
   PlanSectionUpdate,
-  PlanTodoUpdate,
+  PlanObjectiveUpdate,
 } from './plans';
 
 export type {
@@ -147,6 +148,18 @@ export type {
   RelationshipFilter,
 } from './knowledge-graph';
 
+export type {
+  // Project types
+  Project,
+  NewProject,
+  ProjectUpdate,
+  ProjectStatus,
+  McpServerType,
+  ProjectRegistration,
+  ProjectHeartbeat,
+  ProjectFilter,
+} from './projects';
+
 
 // Re-export schemas for validation
 export {
@@ -175,20 +188,20 @@ export {
 } from './agents';
 
 export {
-  // Task schemas
-  taskTypeSchema,
-  taskStatusSchema,
+  // Objective schemas
+  objectiveTypeSchema,
+  objectiveStatusSchema,
   dependencyTypeSchema,
-  taskRequirementsSchema,
-  taskResultsSchema,
-  insertTaskSchema,
-  selectTaskSchema,
-  updateTaskSchema,
-  insertTaskDependencySchema,
-  selectTaskDependencySchema,
-  taskFilterSchema,
-  taskCreateRequestSchema,
-} from './tasks';
+  objectiveRequirementsSchema,
+  objectiveResultsSchema,
+  insertObjectiveSchema,
+  selectObjectiveSchema,
+  updateObjectiveSchema,
+  insertObjectiveDependencySchema,
+  selectObjectiveDependencySchema,
+  objectiveFilterSchema,
+  objectiveCreateRequestSchema,
+} from './objectives';
 
 export {
   // Plan schemas
@@ -203,7 +216,7 @@ export {
   planFilterSchema,
   planCreateRequestSchema,
   planSectionUpdateSchema,
-  planTodoUpdateSchema,
+  planObjectiveUpdateSchema,
 } from './plans';
 
 export {
@@ -302,16 +315,30 @@ export {
   relationshipFilterSchema,
 } from './knowledge-graph';
 
+export {
+  // Project schemas
+  projectStatusSchema,
+  mcpServerTypeSchema,
+  projectMetadataSchema,
+  insertProjectSchema,
+  selectProjectSchema,
+  updateProjectSchema,
+  projectRegistrationSchema,
+  projectHeartbeatSchema,
+  projectFilterSchema,
+} from './projects';
+
 
 // Re-export Drizzle table definitions
 export { memories } from './memories';
 export { agentSessions } from './agents';
-export { tasks, taskDependencies } from './tasks';
+export { objectives, objectiveDependencies } from './objectives';
 export { plans } from './plans';
 export { chatRooms, chatMessages, roomParticipants } from './communication';
 export { documentationSources, scrapeJobs, websites, websitePages } from './scraping';
 export { errorLogs, toolCallLogs } from './logs';
 export { knowledgeEntities, knowledgeRelationships, knowledgeInsights } from './knowledge-graph';
+export { projects } from './projects';
 
 // Import tables and schemas for collections
 import { 
@@ -327,14 +354,14 @@ import {
   updateAgentSessionSchema 
 } from './agents';
 import { 
-  tasks, 
-  taskDependencies, 
-  insertTaskSchema, 
-  selectTaskSchema, 
-  updateTaskSchema,
-  insertTaskDependencySchema,
-  selectTaskDependencySchema
-} from './tasks';
+  objectives, 
+  objectiveDependencies, 
+  insertObjectiveSchema, 
+  selectObjectiveSchema, 
+  updateObjectiveSchema,
+  insertObjectiveDependencySchema,
+  selectObjectiveDependencySchema
+} from './objectives';
 import {
   plans,
   insertPlanSchema,
@@ -395,16 +422,22 @@ import {
   selectKnowledgeInsightSchema,
   updateKnowledgeInsightSchema
 } from './knowledge-graph';
+import {
+  projects,
+  insertProjectSchema,
+  selectProjectSchema,
+  updateProjectSchema
+} from './projects';
 
 // Database schema collections for easier management
 export const allTables = {
   // Core tables
   agentSessions,
-  tasks,
-  taskDependencies,
+  objectives,
+  objectiveDependencies,
   plans,
   memories,
-  
+  projects,
   
   // Communication tables  
   chatRooms,
@@ -430,10 +463,11 @@ export const allTables = {
 // Schema validation collections
 export const insertSchemas = {
   agentSessions: insertAgentSessionSchema,
-  tasks: insertTaskSchema,
-  taskDependencies: insertTaskDependencySchema,
+  objectives: insertObjectiveSchema,
+  objectiveDependencies: insertObjectiveDependencySchema,
   plans: insertPlanSchema,
   memories: insertMemorySchema,
+  projects: insertProjectSchema,
   chatRooms: insertChatRoomSchema,
   chatMessages: insertChatMessageSchema,
   roomParticipants: insertRoomParticipantSchema,
@@ -450,10 +484,11 @@ export const insertSchemas = {
 
 export const selectSchemas = {
   agentSessions: selectAgentSessionSchema,
-  tasks: selectTaskSchema,
-  taskDependencies: selectTaskDependencySchema,
+  objectives: selectObjectiveSchema,
+  objectiveDependencies: selectObjectiveDependencySchema,
   plans: selectPlanSchema,
   memories: selectMemorySchema,
+  projects: selectProjectSchema,
   chatRooms: selectChatRoomSchema,
   chatMessages: selectChatMessageSchema,
   roomParticipants: selectRoomParticipantSchema,
@@ -470,9 +505,10 @@ export const selectSchemas = {
 
 export const updateSchemas = {
   agentSessions: updateAgentSessionSchema,
-  tasks: updateTaskSchema,
+  objectives: updateObjectiveSchema,
   plans: updatePlanSchema,
   memories: updateMemorySchema,
+  projects: updateProjectSchema,
   chatRooms: updateChatRoomSchema,
   roomParticipants: updateRoomParticipantSchema,
   documentationSources: updateDocumentationSourceSchema,
@@ -489,7 +525,7 @@ export const updateSchemas = {
 export const DATABASE_CONSTANTS = {
   // Default values
   DEFAULT_AGENT_STATUS: 'active' as const,
-  DEFAULT_TASK_STATUS: 'pending' as const,
+  DEFAULT_OBJECTIVE_STATUS: 'pending' as const,
   DEFAULT_MEMORY_CONFIDENCE: 0.8,
   DEFAULT_MEMORY_RELEVANCE: 1.0,
   DEFAULT_MEMORY_USEFULNESS: 0.0,
@@ -499,7 +535,7 @@ export const DATABASE_CONSTANTS = {
   
   // Limits
   MAX_AGENT_NAME_LENGTH: 200,
-  MAX_TASK_DESCRIPTION_LENGTH: 2000,
+  MAX_OBJECTIVE_DESCRIPTION_LENGTH: 2000,
   MAX_MEMORY_TITLE_LENGTH: 500,
   MAX_MESSAGE_LENGTH: 4000,
   MAX_ERROR_MESSAGE_LENGTH: 2000,

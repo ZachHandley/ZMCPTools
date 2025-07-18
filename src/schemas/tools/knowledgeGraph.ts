@@ -6,7 +6,7 @@ import { entityTypeSchema, relationshipTypeSchema } from '../knowledge-graph.js'
 // ===============================================
 
 export const StoreKnowledgeMemorySchema = z.object({
-  repository_path: z.string().min(1).describe("The absolute path to the repository where the knowledge entity should be stored"),
+  repository_path: z.string().optional().describe("Optional repository path. If not provided, uses the agent's current working directory."),
   agent_id: z.string().min(1).describe("The ID of the agent storing this knowledge entity"),
   entity_type: entityTypeSchema.describe("The type of entity being stored (e.g., 'function', 'class', 'concept', 'file', 'bug', 'feature', 'person', 'organization', 'technology', 'pattern', 'insight', 'question', 'decision', 'requirement', 'test', 'documentation', 'api', 'database', 'configuration', 'deployment', 'performance', 'security', 'error', 'warning', 'todo', 'note', 'example', 'tutorial', 'best_practice', 'anti_pattern', 'code_smell', 'refactor', 'optimization', 'dependency', 'service', 'component', 'module', 'library', 'framework', 'tool', 'script', 'command', 'variable', 'constant', 'enum', 'interface', 'type', 'schema', 'model', 'view', 'controller', 'route', 'middleware', 'plugin', 'extension', 'theme', 'style', 'asset', 'resource', 'data', 'event', 'listener', 'handler', 'callback', 'promise', 'async', 'sync', 'thread', 'process', 'memory', 'storage', 'cache', 'session', 'cookie', 'token', 'auth', 'permission', 'role', 'user', 'group', 'setting', 'config', 'env', 'flag', 'feature_flag', 'experiment', 'metric', 'log', 'trace', 'debug', 'info', 'warn', 'error', 'fatal', 'success', 'failure', 'retry', 'timeout', 'rate_limit', 'quota', 'limit', 'threshold', 'rule', 'policy', 'standard', 'guideline', 'convention', 'protocol', 'format', 'encoding', 'compression', 'encryption', 'hash', 'checksum', 'signature', 'certificate', 'key', 'secret', 'password', 'credential', 'identity', 'profile', 'account', 'subscription', 'plan', 'tier', 'level', 'rank', 'score', 'rating', 'review', 'feedback', 'comment', 'message', 'notification', 'alert', 'reminder', 'task', 'job', 'queue', 'batch', 'stream', 'pipeline', 'workflow', 'process', 'procedure', 'method', 'algorithm', 'structure', 'pattern', 'template', 'prototype', 'mock', 'stub', 'fake', 'spy', 'double', 'fixture', 'seed', 'migration', 'rollback', 'upgrade', 'downgrade', 'patch', 'hotfix', 'release', 'version', 'branch', 'tag', 'commit', 'merge', 'rebase', 'cherry_pick', 'stash', 'diff', 'conflict', 'resolution', 'other')"),
   entity_name: z.string().min(1).describe("The name or identifier of the knowledge entity"),
@@ -17,7 +17,7 @@ export const StoreKnowledgeMemorySchema = z.object({
 }).describe("Store a knowledge entity in the knowledge graph for a specific repository. Use this to capture important information, insights, concepts, or any other knowledge that should be preserved and linked to other entities. The entity will be stored with vector embeddings for semantic search.");
 
 export const CreateRelationshipSchema = z.object({
-  repository_path: z.string().min(1).describe("The absolute path to the repository where the relationship should be created"),
+  repository_path: z.string().optional().describe("Optional repository path. If not provided, uses the agent's current working directory."),
   from_entity_id: z.string().min(1).describe("The ID of the source entity in the relationship"),
   to_entity_id: z.string().min(1).describe("The ID of the target entity in the relationship"),
   relationship_type: relationshipTypeSchema.describe("The type of relationship between the entities (e.g., 'depends_on', 'implements', 'extends', 'uses', 'calls', 'contains', 'part_of', 'similar_to', 'related_to', 'conflicts_with', 'replaces', 'references', 'documents', 'tests', 'configures', 'deploys', 'monitors', 'validates', 'triggers', 'handles', 'processes', 'stores', 'retrieves', 'transforms', 'aggregates', 'filters', 'sorts', 'groups', 'joins', 'merges', 'splits', 'compresses', 'encrypts', 'decrypts', 'hashes', 'signs', 'verifies', 'authenticates', 'authorizes', 'logs', 'traces', 'debugs', 'profiles', 'benchmarks', 'optimizes', 'refactors', 'migrates', 'upgrades', 'downgrades', 'patches', 'releases', 'versions', 'branches', 'tags', 'commits', 'merges', 'rebases', 'cherry_picks', 'stashes', 'diffs', 'conflicts', 'resolves', 'other')"),
@@ -29,7 +29,7 @@ export const CreateRelationshipSchema = z.object({
 }).describe("Create a directional relationship between two existing entities in the knowledge graph. Use this to establish connections and dependencies between entities, enabling graph traversal and relationship analysis.");
 
 export const SearchKnowledgeGraphSchema = z.object({
-  repository_path: z.string().min(1).describe("The absolute path to the repository to search within"),
+  repository_path: z.string().optional().describe("Optional repository path. If not provided, uses the agent's current working directory."),
   query: z.string().min(1).describe("The search query text. Can be natural language for semantic search or specific terms for exact matching"),
   entity_types: z.array(entityTypeSchema).optional().describe("Optional array of entity types to filter the search results. If not provided, all entity types will be searched"),
   relationship_types: z.array(relationshipTypeSchema).optional().describe("Optional array of relationship types to filter relationships in the results. If not provided, all relationship types will be included"),
@@ -40,7 +40,7 @@ export const SearchKnowledgeGraphSchema = z.object({
 }).describe("Search the knowledge graph using semantic or text-based queries. This tool can find entities and relationships based on natural language queries, making it easy to discover relevant knowledge. Use semantic search for conceptual queries and basic search for exact term matching.");
 
 export const FindRelatedEntitiesSchema = z.object({
-  repository_path: z.string().min(1).describe("The absolute path to the repository to search within"),
+  repository_path: z.string().optional().describe("Optional repository path. If not provided, uses the agent's current working directory."),
   entity_id: z.string().min(1).describe("The ID of the entity to find related entities for"),
   relationship_types: z.array(relationshipTypeSchema).optional().describe("Optional array of relationship types to filter the traversal. If not provided, all relationship types will be considered"),
   max_distance: z.number().int().min(1).max(5).default(2).describe("Maximum distance (number of hops) to traverse in the graph when finding related entities (1-5)"),

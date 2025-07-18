@@ -1,7 +1,7 @@
 // Core service exports
 export { AgentService, type CreateAgentRequest, type AgentStatusUpdate } from './AgentService.js';
 export { EventBus, eventBus, type EventTypes, type EventListener, type EventSubscription } from './EventBus.js';
-export { TaskService, type CreateTaskRequest, type TaskServiceUpdate, type TaskExecutionPlan } from './TaskService.js';
+export { ObjectiveService, type CreateObjectiveRequest, type ObjectiveServiceUpdate, type ObjectiveExecutionPlan } from './ObjectiveService.js';
 export { CommunicationService, type CreateRoomRequest, type CommunicationServiceMessageFilter } from './CommunicationService.js';
 export { 
   AgentMonitoringService, 
@@ -67,13 +67,13 @@ export {
   type Collection
 } from './LanceDBService.js';
 export {
-  TaskComplexityAnalyzer,
-  type TaskComplexityAnalysis,
+  ObjectiveComplexityAnalyzer,
+  type ObjectiveComplexityAnalysis,
   type ModelType,
   type ComplexityLevel,
   type AgentSpecialization,
   type AnalysisConfig
-} from './TaskComplexityAnalyzer.js';
+} from './ObjectiveComplexityAnalyzer.js';
 export {
   StructuredOrchestrator,
   type StructuredOrchestrationRequest,
@@ -91,13 +91,23 @@ export {
 export {
   DependencyWaitingService,
   type DependencyWaitResult,
-  type TaskDependencyWaitResult,
+  type ObjectiveDependencyWaitResult,
   type CompletionEvent
 } from './DependencyWaitingService.js';
 
 // Repository exports
 export { AgentRepository } from '../repositories/AgentRepository.js';
-export { TaskRepository } from '../repositories/TaskRepository.js';
+export { ObjectiveRepository } from '../repositories/ObjectiveRepository.js';
 export { CommunicationRepository } from '../repositories/CommunicationRepository.js';
 export { MemoryRepository } from '../repositories/MemoryRepository.js';
+export { ProjectRepository } from '../repositories/ProjectRepository.js';
 export { MemoryService } from './MemoryService.js';
+export { ProjectService } from './ProjectService.js';
+export { 
+  DashboardConnectionService,
+  type DashboardConnectionConfig,
+  type DashboardConnectionStatus,
+  type ToolCallEvent,
+  type ProgressEvent,
+  type ErrorEvent
+} from './DashboardConnectionService.js';

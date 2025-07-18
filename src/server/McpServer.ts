@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import http from "http";
 import net from "net";
+import path from "path";
 import { z } from "zod";
 import {
   CallToolRequestSchema,
@@ -73,7 +74,10 @@ import {
   VectorSearchService,
   FileOperationsService,
   TreeSummaryService,
+  ProjectService,
+  DashboardConnectionService,
   fileOperationsService,
+  eventBus,
 } from "../services/index.js";
 import { ResourceManager } from "../managers/ResourceManager.js";
 import { PromptManager } from "../managers/PromptManager.js";
@@ -124,6 +128,9 @@ export class McpToolsServer {
     {};
   private lastClientActivity: number = Date.now();
   private inactivityTimer?: NodeJS.Timeout;
+  private projectService?: ProjectService;
+  private dashboardConnectionService?: DashboardConnectionService;
+  private projectId?: string;
 
   /**
    * Start the inactivity timer that will shutdown the server if no client activity for 10 minutes
@@ -288,6 +295,138 @@ export class McpToolsServer {
     }
   }
 
+  /**
+   * Register this MCP server instance with the dashboard for monitoring
+   */
+  private async registerWithDashboard(): Promise<void> {
+    if (!this.projectService) {
+      process.stderr.write("⚠️ ProjectService not initialized, skipping dashboard registration\n");
+      return;
+    }
+
+    try {
+      process.stderr.write("📊 Registering with dashboard...\n");
+      
+      const transportType = this.options.transport || process.env.MCP_TRANSPORT || "stdio";
+      const projectName = path.basename(this.repositoryPath);
+      
+      const registration = {
+        name: projectName,
+        repositoryPath: this.repositoryPath,
+        mcpServerType: 'claude-mcp-tools' as const,
+        mcpServerPid: process.pid,
+        mcpServerPort: transportType === "http" ? (this.options.httpPort || 4269) : undefined,
+        mcpServerHost: transportType === "http" ? (this.options.httpHost || "127.0.0.1") : undefined,
+        claudeSessionId: undefined, // Set by Claude when connected
+        foundationSessionId: undefined, // Set when foundation caching is used
+        projectMetadata: {
+          serverVersion: this.options.version,
+          transportType,
+          startupTime: new Date().toISOString(),
+          toolsCount: this.getAvailableTools().length
+        },
+        webUiEnabled: false, // Dashboard is separate from MCP server
+      };
+
+      const project = await this.projectService.registerProject(registration);
+      this.projectId = project.id;
+      
+      process.stderr.write(`✅ Registered with dashboard as project: ${project.id}\n`);
+      
+      // Start heartbeat for real-time monitoring
+      this.startHeartbeat();
+      
+      // Initialize dashboard connection service for real-time communication
+      process.stderr.write("🔌 About to initialize dashboard connection...\n");
+      await this.initializeDashboardConnection();
+      process.stderr.write("✅ Dashboard connection initialized\n");
+      
+    } catch (error) {
+      process.stderr.write(`⚠️ Failed to register with dashboard: ${error}\n`);
+      // Don't fail startup if dashboard registration fails
+    }
+  }
+
+  /**
+   * Start heartbeat for dashboard monitoring
+   */
+  private startHeartbeat(): void {
+    if (!this.projectService || !this.projectId) {
+      return;
+    }
+
+    const heartbeatInterval = 30000; // 30 seconds
+    const dashboardCheckInterval = 5000; // 5 seconds for dashboard check
+    
+    // Main heartbeat - update project status
+    setInterval(async () => {
+      try {
+        const activeTransports = Object.keys(this.transports).length;
+        const status = activeTransports > 0 ? 'connected' : 'active';
+        
+        const metadata = {
+          activeTransports,
+          uptime: process.uptime(),
+          memoryUsage: process.memoryUsage(),
+          lastActivity: this.lastClientActivity,
+          toolsCount: this.getAvailableTools().length
+        };
+
+        await this.projectService!.updateHeartbeat(this.projectId!, status, metadata);
+        
+        // Emit server heartbeat event
+        eventBus.emit('server_heartbeat', {
+          status,
+          uptime: process.uptime(),
+          memoryUsage: process.memoryUsage(),
+          activeTransports,
+          timestamp: new Date(),
+          repositoryPath: this.repositoryPath
+        });
+      } catch (error) {
+        process.stderr.write(`⚠️ Heartbeat update failed: ${error}\n`);
+      }
+    }, heartbeatInterval);
+
+    // Dashboard connection is now handled by DashboardConnectionService
+  }
+
+  /**
+   * Initialize dashboard connection service for real-time communication
+   */
+  private async initializeDashboardConnection(): Promise<void> {
+    process.stderr.write("🔍 Starting initializeDashboardConnection method\n");
+    if (!this.projectId) {
+      process.stderr.write("⚠️ Project ID not available, skipping dashboard connection\n");
+      return;
+    }
+    process.stderr.write(`📋 Project ID available: ${this.projectId}\n`);
+
+    try {
+      process.stderr.write("🔌 Initializing dashboard connection service...\n");
+      
+      this.dashboardConnectionService = new DashboardConnectionService(
+        this.db,
+        this.repositoryPath,
+        {
+          autoReconnect: true,
+          maxReconnectAttempts: 10,
+          reconnectDelay: 1000,
+          maxReconnectDelay: 30000,
+          connectionCheckInterval: 5000
+        }
+      );
+
+      await this.dashboardConnectionService.initialize(this.projectId);
+      
+      process.stderr.write("✅ Dashboard connection service initialized\n");
+      
+    } catch (error) {
+      process.stderr.write(`⚠️ Failed to initialize dashboard connection: ${error}\n`);
+      // Don't fail startup if dashboard connection fails
+    }
+  }
+
   constructor(private options: McpServerOptions) {
     this.repositoryPath = PathUtils.resolveRepositoryPath(
       options.repositoryPath || process.cwd(),
@@ -335,6 +474,9 @@ export class McpToolsServer {
       this.db,
       this.repositoryPath
     );
+    
+    // Initialize project service for dashboard integration
+    this.projectService = new ProjectService(this.db, eventBus);
 
     // Initialize file operations and tree summary services
     this.fileOperationsService = fileOperationsService; // Use singleton instance
@@ -433,11 +575,31 @@ export class McpToolsServer {
       // Debug logging to see what the MCP client is sending
       process.stderr.write(`🔍 MCP CallTool request: name="${name}", args=${JSON.stringify(typedArgs, null, 2)}\n`);
       
+      // Emit tool call started event
+      const startTime = Date.now();
+      eventBus.emit('tool_call_started', {
+        toolName: name,
+        arguments: typedArgs,
+        timestamp: new Date(),
+        repositoryPath: this.repositoryPath
+      });
+      
       const tools = this.getAvailableTools();
       const tool = tools.find((t) => t.name === name);
 
       if (!tool) {
-        throw new McpError(ErrorCode.MethodNotFound, `Tool "${name}" not found`);
+        const error = new McpError(ErrorCode.MethodNotFound, `Tool "${name}" not found`);
+        
+        // Emit tool call failed event
+        eventBus.emit('tool_call_failed', {
+          toolName: name,
+          arguments: typedArgs,
+          error,
+          timestamp: new Date(),
+          repositoryPath: this.repositoryPath
+        });
+        
+        throw error;
       }
 
       try {
@@ -470,6 +632,17 @@ export class McpToolsServer {
           : cleanArgs;
 
         const result = await tool.handler(handlerArgs);
+        
+        // Emit tool call completed event
+        const duration = Date.now() - startTime;
+        eventBus.emit('tool_call_completed', {
+          toolName: name,
+          arguments: typedArgs,
+          result,
+          duration,
+          timestamp: new Date(),
+          repositoryPath: this.repositoryPath
+        });
 
         // Check if result contains AI image format
         const hasAIImage = this.hasAIImageInResult(result);
@@ -506,6 +679,15 @@ export class McpToolsServer {
           isError: false,
         };
       } catch (error) {
+        // Emit tool call failed event
+        eventBus.emit('tool_call_failed', {
+          toolName: name,
+          arguments: typedArgs,
+          error: error instanceof Error ? error : new Error(String(error)),
+          timestamp: new Date(),
+          repositoryPath: this.repositoryPath
+        });
+        
         // Return error as CallToolResult instead of throwing
         return {
           content: [
@@ -619,6 +801,13 @@ export class McpToolsServer {
   async start(): Promise<void> {
     // MCP servers must not output to stdout - using stderr for startup messages
     process.stderr.write("🚀 Starting Claude MCP Tools Server...\n");
+    
+    // Emit server status change event
+    eventBus.emit('server_status_change', {
+      status: 'starting',
+      timestamp: new Date(),
+      repositoryPath: this.repositoryPath
+    });
 
     // Initialize database
     await this.db.initialize();
@@ -647,16 +836,32 @@ export class McpToolsServer {
       await this.startStdioTransport();
     }
 
-    // Start background scraping worker
+    // Start background scraping worker (non-blocking)
     process.stderr.write("🤖 Starting background scraping worker...\n");
-    try {
-      await this.webScrapingService.startScrapingWorker();
-      process.stderr.write("✅ Background scraping worker started\n");
-    } catch (error) {
-      process.stderr.write(`⚠️ Failed to start scraping worker: ${error}\n`);
-    }
+    this.webScrapingService.startScrapingWorker()
+      .then(() => {
+        process.stderr.write("✅ Background scraping worker started\n");
+      })
+      .catch((error) => {
+        process.stderr.write(`⚠️ Failed to start scraping worker: ${error}\n`);
+      });
+
+    // Register this MCP server instance with the dashboard
+    await this.registerWithDashboard();
 
     process.stderr.write("✅ MCP Server started successfully\n");
+    
+    // Emit server status change event
+    eventBus.emit('server_status_change', {
+      status: 'active',
+      previousStatus: 'starting',
+      timestamp: new Date(),
+      repositoryPath: this.repositoryPath,
+      metadata: {
+        transport: this.options.transport || 'stdio',
+        toolsCount: this.getAvailableTools().length
+      }
+    });
     const transportMsg =
       transportType === "http"
         ? `📡 Listening for MCP requests on HTTP port ${
@@ -1181,10 +1386,35 @@ export class McpToolsServer {
 
   async stop(): Promise<void> {
     process.stderr.write("🛑 Stopping MCP Server...\n");
+    
+    // Emit server status change event
+    eventBus.emit('server_status_change', {
+      status: 'disconnected',
+      previousStatus: 'active',
+      timestamp: new Date(),
+      repositoryPath: this.repositoryPath
+    });
+
+    // End project registration with dashboard
+    if (this.projectService && this.projectId) {
+      try {
+        await this.projectService.endProject(this.projectId, "Server shutdown");
+        process.stderr.write("📊 Unregistered from dashboard\n");
+      } catch (error) {
+        process.stderr.write(`⚠️ Failed to unregister from dashboard: ${error}\n`);
+      }
+    }
 
     // Stop inactivity timer
     this.stopInactivityTimer();
     process.stderr.write("⏰ Inactivity timer stopped\n");
+
+    // Shutdown dashboard connection service
+    if (this.dashboardConnectionService) {
+      process.stderr.write("🔌 Shutting down dashboard connection service...\n");
+      await this.dashboardConnectionService.shutdown();
+      process.stderr.write("✅ Dashboard connection service shutdown\n");
+    }
 
     // Stop background scraping worker
     process.stderr.write("🤖 Stopping background scraping worker...\n");

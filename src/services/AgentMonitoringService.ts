@@ -8,7 +8,7 @@
 import { DatabaseManager } from '../database/index.js';
 import { AgentService } from './AgentService.js';
 import { CommunicationService } from './CommunicationService.js';
-import { TaskService } from './TaskService.js';
+import { ObjectiveService } from './ObjectiveService.js';
 import { KnowledgeGraphService } from './KnowledgeGraphService.js';
 import { VectorSearchService } from './VectorSearchService.js';
 import { ProgressTracker } from './ProgressTracker.js';
@@ -18,9 +18,9 @@ import {
   type AgentSession, 
   type AgentStatus, 
   type AgentFilter,
-  type Task, 
-  type TaskStatus, 
-  type TaskFilter,
+  type Objective, 
+  type ObjectiveStatus, 
+  type ObjectiveFilter,
   type ChatRoom,
   type ChatMessage,
   type KnowledgeEntity
@@ -32,15 +32,15 @@ export interface AgentStatusSnapshot {
   agentId: string;
   status: AgentStatus;
   lastHeartbeat: string;
-  currentTask?: Task;
-  taskProgress?: number;
+  currentObjective?: Objective;
+  objectiveProgress?: number;
   roomMemberships: string[];
   recentMessages: ChatMessage[];
   capabilities: string[];
   metadata: Record<string, any>;
   performance: {
-    tasksCompleted: number;
-    averageTaskDuration: number;
+    objectivesCompleted: number;
+    averageObjectiveDuration: number;
     errorRate: number;
     lastErrorTime?: string;
   };
@@ -55,12 +55,12 @@ export interface OrchestrationStatus {
   startTime: string;
   endTime?: string;
   duration?: number;
-  masterTask?: Task;
+  masterObjective?: Objective;
   spawnedAgents: AgentStatusSnapshot[];
   activeAgents: AgentStatusSnapshot[];
-  completedTasks: Task[];
-  failedTasks: Task[];
-  totalTasks: number;
+  completedObjectives: Objective[];
+  failedObjectives: Objective[];
+  totalObjectives: number;
   progress: number; // 0-100
   roomName?: string;
   foundationSessionId?: string;
@@ -101,12 +101,12 @@ export interface AgentActivitySummary {
   };
   totalAgents: number;
   activeAgents: number;
-  completedTasks: number;
-  failedTasks: number;
+  completedObjectives: number;
+  failedObjectives: number;
   totalMessages: number;
   topPerformers: {
     agentId: string;
-    tasksCompleted: number;
+    objectivesCompleted: number;
     averageDuration: number;
   }[];
   coordinationEvents: {
@@ -121,7 +121,7 @@ export interface AgentActivitySummary {
 export class AgentMonitoringService {
   private agentService: AgentService;
   private communicationService: CommunicationService;
-  private taskService: TaskService;
+  private objectiveService: ObjectiveService;
   private knowledgeGraphService: KnowledgeGraphService;
   private progressTracker: ProgressTracker;
 
@@ -132,7 +132,7 @@ export class AgentMonitoringService {
     this.repositoryPath = PathUtils.resolveRepositoryPath(repositoryPath, 'AgentMonitoringService');
     this.agentService = new AgentService(db);
     this.communicationService = new CommunicationService(db);
-    this.taskService = new TaskService(db);
+    this.objectiveService = new ObjectiveService(db);
     const vectorService = new VectorSearchService(db);
     this.knowledgeGraphService = new KnowledgeGraphService(db, vectorService);
     this.progressTracker = new ProgressTracker(db);
@@ -149,7 +149,7 @@ export class AgentMonitoringService {
       }
 
       // Get current task
-      const currentTask = await this.getCurrentTask(agentId);
+      const currentObjective = await this.getCurrentObjective(agentId);
       
       // Get room memberships
       const roomMemberships = await this.getAgentRoomMemberships(agentId);
@@ -170,8 +170,8 @@ export class AgentMonitoringService {
         agentId: agent.id,
         status: agent.status,
         lastHeartbeat: agent.lastHeartbeat,
-        currentTask,
-        taskProgress: currentTask ? await this.getTaskProgress(currentTask.id) : undefined,
+        currentObjective,
+        objectiveProgress: currentObjective ? await this.getObjectiveProgress(currentObjective.id) : undefined,
         roomMemberships,
         recentMessages,
         capabilities: agent.capabilities || [],
@@ -223,9 +223,9 @@ export class AgentMonitoringService {
    */
   async getOrchestrationStatus(orchestrationId: string): Promise<OrchestrationStatus> {
     try {
-      // Find the master task that represents this orchestration
-      const masterTask = await this.findMasterTask(orchestrationId);
-      if (!masterTask) {
+      // Find the master objective that represents this orchestration
+      const masterObjective = await this.findMasterObjective(orchestrationId);
+      if (!masterObjective) {
         throw new Error(`Orchestration ${orchestrationId} not found`);
       }
 
@@ -235,10 +235,10 @@ export class AgentMonitoringService {
       // Get active agents
       const activeAgents = spawnedAgents.filter(agent => agent.status === 'active');
       
-      // Get all tasks for this orchestration
-      const allTasks = await this.getOrchestrationTasks(orchestrationId);
-      const completedTasks = allTasks.filter(task => task.status === 'completed');
-      const failedTasks = allTasks.filter(task => task.status === 'failed');
+      // Get all objectives for this orchestration
+      const allObjectives = await this.getOrchestrationObjectives(orchestrationId);
+      const completedObjectives = allObjectives.filter(objective => objective.status === 'completed');
+      const failedObjectives = allObjectives.filter(objective => objective.status === 'failed');
       
       // Calculate progress using ProgressTracker for proper aggregation
       let progress = 0;
@@ -248,8 +248,8 @@ export class AgentMonitoringService {
           contextType: 'orchestration' as const,
           repositoryPath: this.repositoryPath,
           metadata: {
-            totalTasks: allTasks.length,
-            completedTasks: completedTasks.length,
+            totalObjectives: allObjectives.length,
+            completedObjectives: completedObjectives.length,
             activeAgents: activeAgents.length
           }
         };
@@ -263,30 +263,30 @@ export class AgentMonitoringService {
           if (aggregatedProgress.agentCount > 0) {
             progress = aggregatedProgress.totalProgress;
           } else {
-            // Fall back to task-based progress calculation
-            progress = allTasks.length > 0 ? 
-              (completedTasks.length / allTasks.length) * 100 : 0;
+            // Fall back to objective-based progress calculation
+            progress = allObjectives.length > 0 ? 
+              (completedObjectives.length / allObjectives.length) * 100 : 0;
           }
         } else {
-          // No active agents, use task-based progress
-          progress = allTasks.length > 0 ? 
-            (completedTasks.length / allTasks.length) * 100 : 0;
+          // No active agents, use objective-based progress
+          progress = allObjectives.length > 0 ? 
+            (completedObjectives.length / allObjectives.length) * 100 : 0;
         }
         
         // Ensure progress is valid and monotonic
         const progressReport = await this.progressTracker.reportContextProgress(
           progressContext,
           progress,
-          `Orchestration progress: ${completedTasks.length}/${allTasks.length} tasks completed`
+          `Orchestration progress: ${completedObjectives.length}/${allObjectives.length} objectives completed`
         );
         
         progress = progressReport.reportedProgress;
         
       } catch (error) {
         logger.warn('Failed to calculate orchestration progress with ProgressTracker:', error);
-        // Fall back to simple task-based calculation
-        progress = allTasks.length > 0 ? 
-          Math.min((completedTasks.length / allTasks.length) * 100, 100) : 0;
+        // Fall back to simple objective-based calculation
+        progress = allObjectives.length > 0 ? 
+          Math.min((completedObjectives.length / allObjectives.length) * 100, 100) : 0;
       }
 
       // Get orchestration insights and errors
@@ -294,7 +294,7 @@ export class AgentMonitoringService {
       const errors = await this.getOrchestrationErrors(orchestrationId);
 
       // Determine overall status
-      const status = this.determineOrchestrationStatus(masterTask, activeAgents, completedTasks, failedTasks);
+      const status = this.determineOrchestrationStatus(masterObjective, activeAgents, completedObjectives, failedObjectives);
 
       // Get room name if available
       const roomName = await this.getOrchestrationRoom(orchestrationId);
@@ -304,22 +304,22 @@ export class AgentMonitoringService {
 
       return {
         orchestrationId,
-        title: masterTask.description,
+        title: masterObjective.description,
         status,
-        startTime: masterTask.createdAt,
-        endTime: masterTask.updatedAt || undefined,
-        duration: masterTask.status === 'completed' ? 
-          new Date(masterTask.updatedAt).getTime() - new Date(masterTask.createdAt).getTime() : 
+        startTime: masterObjective.createdAt,
+        endTime: masterObjective.updatedAt || undefined,
+        duration: masterObjective.status === 'completed' ? 
+          new Date(masterObjective.updatedAt).getTime() - new Date(masterObjective.createdAt).getTime() : 
           undefined,
-        masterTask,
+        masterObjective,
         spawnedAgents,
         activeAgents,
-        completedTasks,
-        failedTasks,
-        totalTasks: allTasks.length,
+        completedObjectives,
+        failedObjectives,
+        totalObjectives: allObjectives.length,
         progress,
         roomName,
-        foundationSessionId: (masterTask.requirements as any)?.foundationSessionId,
+        foundationSessionId: (masterObjective.requirements as any)?.foundationSessionId,
         nextSteps,
         insights,
         errors
@@ -345,19 +345,19 @@ export class AgentMonitoringService {
       const activeAgents = allAgents.filter(agent => agent.status === 'active');
 
       // Get task statistics
-      const allTasks = await this.taskService.getTasksByRepository(resolvedPath, {
+      const allObjectives = await this.objectiveService.getObjectivesByRepository(resolvedPath, {
         limit: 1000,
         offset: 0
       });
       
-      // Filter tasks by timeframe
-      const timeframeTasks = allTasks.filter(task => {
-        const taskTime = new Date(task.createdAt).getTime();
-        return taskTime >= new Date(timeframe.start).getTime() && 
-               taskTime <= new Date(timeframe.end).getTime();
+      // Filter objectives by timeframe
+      const timeframeObjectives = allObjectives.filter(objective => {
+        const objectiveTime = new Date(objective.createdAt).getTime();
+        return objectiveTime >= new Date(timeframe.start).getTime() && 
+               objectiveTime <= new Date(timeframe.end).getTime();
       });
-      const completedTasks = timeframeTasks.filter(task => task.status === 'completed');
-      const failedTasks = timeframeTasks.filter(task => task.status === 'failed');
+      const completedObjectives = timeframeObjectives.filter(objective => objective.status === 'completed');
+      const failedObjectives = timeframeObjectives.filter(objective => objective.status === 'failed');
 
       // Get communication statistics
       const rooms = await this.communicationService.listRooms(resolvedPath);
@@ -377,8 +377,8 @@ export class AgentMonitoringService {
         timeframe,
         totalAgents: allAgents.length,
         activeAgents: activeAgents.length,
-        completedTasks: completedTasks.length,
-        failedTasks: failedTasks.length,
+        completedObjectives: completedObjectives.length,
+        failedObjectives: failedObjectives.length,
         totalMessages: recentMessages.length,
         topPerformers,
         coordinationEvents,
@@ -436,12 +436,12 @@ export class AgentMonitoringService {
    * Private helper methods
    */
 
-  private async getCurrentTask(agentId: string): Promise<Task | undefined> {
-    const tasks = await this.taskService.getTasksByAgent(agentId, {
+  private async getCurrentObjective(agentId: string): Promise<Objective | undefined> {
+    const objectives = await this.objectiveService.getObjectivesByAgent(agentId, {
       limit: 1,
       offset: 0
     });
-    return tasks.find(task => task.status === 'in_progress');
+    return objectives.find(objective => objective.status === 'in_progress');
   }
 
   private async getAgentRoomMemberships(agentId: string): Promise<string[]> {
@@ -476,36 +476,36 @@ export class AgentMonitoringService {
   }
 
   private async getAgentPerformance(agentId: string, timeframe?: { start: string; end: string }) {
-    const tasks = await this.taskService.getTasksByAgent(agentId, {
+    const objectives = await this.objectiveService.getObjectivesByAgent(agentId, {
       limit: 1000,
       offset: 0
     });
     
     // Filter by timeframe if provided
-    const filteredTasks = timeframe ? tasks.filter(task => {
-      const taskTime = new Date(task.createdAt).getTime();
-      return taskTime >= new Date(timeframe.start).getTime() && 
-             taskTime <= new Date(timeframe.end).getTime();
-    }) : tasks;
-    const completedTasks = filteredTasks.filter(task => task.status === 'completed');
-    const failedTasks = filteredTasks.filter(task => task.status === 'failed');
+    const filteredObjectives = timeframe ? objectives.filter(objective => {
+      const objectiveTime = new Date(objective.createdAt).getTime();
+      return objectiveTime >= new Date(timeframe.start).getTime() && 
+             objectiveTime <= new Date(timeframe.end).getTime();
+    }) : objectives;
+    const completedObjectives = filteredObjectives.filter(objective => objective.status === 'completed');
+    const failedObjectives = filteredObjectives.filter(objective => objective.status === 'failed');
     
-    const durations = completedTasks
-      .filter(task => task.status === 'completed')
-      .map(task => 
-        new Date(task.updatedAt).getTime() - new Date(task.createdAt).getTime()
+    const durations = completedObjectives
+      .filter(objective => objective.status === 'completed')
+      .map(objective => 
+        new Date(objective.updatedAt).getTime() - new Date(objective.createdAt).getTime()
       );
     
-    const averageTaskDuration = durations.length > 0 ? 
+    const averageObjectiveDuration = durations.length > 0 ? 
       durations.reduce((sum, duration) => sum + duration, 0) / durations.length : 0;
     
-    const errorRate = filteredTasks.length > 0 ? failedTasks.length / filteredTasks.length : 0;
-    const lastErrorTime = failedTasks.length > 0 ? 
-      failedTasks[failedTasks.length - 1].updatedAt : undefined;
+    const errorRate = filteredObjectives.length > 0 ? failedObjectives.length / filteredObjectives.length : 0;
+    const lastErrorTime = failedObjectives.length > 0 ? 
+      failedObjectives[failedObjectives.length - 1].updatedAt : undefined;
 
     return {
-      tasksCompleted: completedTasks.length,
-      averageTaskDuration,
+      objectivesCompleted: completedObjectives.length,
+      averageObjectiveDuration,
       errorRate,
       lastErrorTime
     };
@@ -515,36 +515,36 @@ export class AgentMonitoringService {
     return (Date.now() - new Date(startTime).getTime()) / 1000;
   }
 
-  private async getTaskProgress(taskId: string): Promise<number | undefined> {
+  private async getObjectiveProgress(objectiveId: string): Promise<number | undefined> {
     // TODO: Implement task progress tracking
     // For now, return undefined
     return undefined;
   }
 
-  private async findMasterTask(orchestrationId: string): Promise<Task | undefined> {
-    const resolvedPath = PathUtils.resolveRepositoryPath(this.repositoryPath, 'findMasterTask');
-    const tasks = await this.taskService.getTasksByRepository(resolvedPath, {
+  private async findMasterObjective(orchestrationId: string): Promise<Objective | undefined> {
+    const resolvedPath = PathUtils.resolveRepositoryPath(this.repositoryPath, 'findMasterObjective');
+    const objectives = await this.objectiveService.getObjectivesByRepository(resolvedPath, {
       limit: 1000,
       offset: 0
     });
     
     // First try to find by orchestration ID in requirements
-    let masterTask = tasks.find(task => 
-      (task.requirements as any)?.orchestrationId === orchestrationId ||
-      task.id === orchestrationId
+    let masterObjective = objectives.find(objective => 
+      (objective.requirements as any)?.orchestrationId === orchestrationId ||
+      objective.id === orchestrationId
     );
     
-    // If not found, try to find by looking for the agent's assigned task
-    if (!masterTask) {
+    // If not found, try to find by looking for the agent's assigned objective
+    if (!masterObjective) {
       const agents = await this.agentService.listAgents(resolvedPath);
       const orchestrationAgent = agents.find(agent => agent.id === orchestrationId);
       
-      if (orchestrationAgent && orchestrationAgent.agentMetadata?.assignedTaskId) {
-        masterTask = tasks.find(task => task.id === orchestrationAgent.agentMetadata.assignedTaskId);
+      if (orchestrationAgent && orchestrationAgent.agentMetadata?.assignedObjectiveId) {
+        masterObjective = objectives.find(objective => objective.id === orchestrationAgent.agentMetadata.assignedObjectiveId);
       }
     }
     
-    return masterTask;
+    return masterObjective;
   }
 
   private async getOrchestrationAgents(orchestrationId: string): Promise<AgentStatusSnapshot[]> {
@@ -564,15 +564,15 @@ export class AgentMonitoringService {
     return orchestrationAgents;
   }
 
-  private async getOrchestrationTasks(orchestrationId: string): Promise<Task[]> {
-    const tasks = await this.taskService.getTasksByRepository(this.repositoryPath, {
+  private async getOrchestrationObjectives(orchestrationId: string): Promise<Objective[]> {
+    const objectives = await this.objectiveService.getObjectivesByRepository(this.repositoryPath, {
       limit: 1000,
       offset: 0
     });
     
-    return tasks.filter(task => 
-      (task.requirements as any)?.orchestrationId === orchestrationId ||
-      task.parentTaskId === orchestrationId
+    return objectives.filter(objective => 
+      (objective.requirements as any)?.orchestrationId === orchestrationId ||
+      objective.parentObjectiveId === orchestrationId
     );
   }
 
@@ -593,14 +593,14 @@ export class AgentMonitoringService {
   }
 
   private determineOrchestrationStatus(
-    masterTask: Task, 
+    masterObjective: Objective, 
     activeAgents: AgentStatusSnapshot[], 
-    completedTasks: Task[], 
-    failedTasks: Task[]
+    completedObjectives: Objective[], 
+    failedObjectives: Objective[]
   ): 'active' | 'completed' | 'failed' | 'paused' {
-    if (masterTask.status === 'completed') return 'completed';
-    if (masterTask.status === 'failed') return 'failed';
-    if (activeAgents.length === 0 && completedTasks.length === 0) return 'paused';
+    if (masterObjective.status === 'completed') return 'completed';
+    if (masterObjective.status === 'failed') return 'failed';
+    if (activeAgents.length === 0 && completedObjectives.length === 0) return 'paused';
     return 'active';
   }
 
@@ -639,17 +639,17 @@ export class AgentMonitoringService {
     
     for (const agent of agents) {
       const performance = await this.getAgentPerformance(agent.id, timeframe);
-      if (performance.tasksCompleted > 0) {
+      if (performance.objectivesCompleted > 0) {
         performers.push({
           agentId: agent.id,
-          tasksCompleted: performance.tasksCompleted,
-          averageDuration: performance.averageTaskDuration
+          objectivesCompleted: performance.objectivesCompleted,
+          averageDuration: performance.averageObjectiveDuration
         });
       }
     }
     
     return performers
-      .sort((a, b) => b.tasksCompleted - a.tasksCompleted)
+      .sort((a, b) => b.objectivesCompleted - a.objectivesCompleted)
       .slice(0, 5);
   }
 
