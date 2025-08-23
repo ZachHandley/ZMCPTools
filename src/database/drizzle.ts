@@ -69,10 +69,16 @@ class ConnectionPool {
       return conn;
     }
 
-    // Wait for a connection to become available
-    return new Promise((resolve) => {
+    // Wait for a connection to become available with timeout
+    const timeoutMs = this.config.busyTimeoutMs || 30000;
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Connection pool timeout after ${timeoutMs}ms - all ${this.maxConnections} connections are busy`));
+      }, timeoutMs);
+
       const checkForConnection = () => {
         if (this.availableConnections.length > 0) {
+          clearTimeout(timeout);
           const conn = this.availableConnections.pop()!;
           this.busyConnections.add(conn);
           resolve(conn);
@@ -185,7 +191,7 @@ export class DatabaseManager {
       timeout: 30000,
       busyTimeoutMs: 30000,
       checkpointIntervalMs: 60000, // 1 minute
-      connectionPoolSize: 5,
+      connectionPoolSize: 15, // Increased from 5 for better concurrency
       enableConnectionPooling: true,
       ...config
     };

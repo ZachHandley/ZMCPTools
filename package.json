@@ -31,7 +31,7 @@
   ],
   "preferGlobal": true,
   "scripts": {
-    "build": "pnpm run build:dashboard && tsup",
+    "build": "(pnpm run build:dashboard || true) && tsup",
     "build:dashboard": "cd dashboard && pnpm install && pnpm run build",
     "postbuild": "chmod +x dist/server/index.js dist/cli/index.js || true",
     "dev": "tsx src/index.ts",

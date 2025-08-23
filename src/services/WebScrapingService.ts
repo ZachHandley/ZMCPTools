@@ -18,6 +18,7 @@ import {
   type ScrapingPattern,
 } from "../utils/patternMatcher.js";
 import { ScrapeJobRepository } from "../repositories/ScrapeJobRepository.js";
+import { serializeDOMWithPlaywright } from "../utils/domToJson.js";
 import { DocumentationRepository } from "../repositories/DocumentationRepository.js";
 import { WebsiteRepository } from "../repositories/WebsiteRepository.js";
 import { WebsitePagesRepository } from "../repositories/WebsitePagesRepository.js";
@@ -535,6 +536,35 @@ export class WebScrapingService {
             );
           }
 
+          // Extract DOM JSON for analysis tools (after JS rendering is complete)
+          let domJsonContent: any = null;
+          try {
+            this.logger.info(`Extracting DOM JSON for ${url}...`);
+            
+            // Ensure any remaining JS has finished executing
+            await page.waitForLoadState('networkidle');
+            await page.waitForTimeout(500); // Small buffer for dynamic content
+            
+            // Extract DOM using eval script in browser context
+            domJsonContent = await serializeDOMWithPlaywright(
+              page,
+              selectorToUse || 'html',
+              {
+                includeAllStyles: false,
+                includeBoundingBox: true,
+                includeInteractivity: true,
+                maxDepth: 20, // Reasonable depth for analysis
+                excludeHidden: false
+              }
+            );
+            if (domJsonContent) {
+              this.logger.info(`DOM JSON extracted successfully for ${url}, elements: ${JSON.stringify(domJsonContent).length} chars`);
+            }
+          } catch (error) {
+            this.logger.warn(`Failed to extract DOM JSON for ${url}:`, error instanceof Error ? error.message : error);
+            // Continue without DOM - don't fail the entire scraping
+          }
+
           // Normalize the final URL (after redirects) for consistent storage
           const normalizedUrl =
             this.websitePagesRepository.normalizeUrl(finalUrl);
@@ -549,6 +579,7 @@ export class WebScrapingService {
             contentHash,
             htmlContent,
             markdownContent,
+            domJsonContent, // Add DOM JSON for analysis tools
             selector: selectorToUse || undefined,
             title: pageContent.title || new URL(url).pathname,
             httpStatus: 200,

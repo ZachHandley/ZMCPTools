@@ -781,31 +781,31 @@ export class BrowserAIDOMTools {
   getTools(): McpTool[] {
     return [
       {
-        name: "analyze_dom_structure",
+        name: "dom_analyze_structure",
         description: "AI-guided exploration and analysis of DOM structure using goal-oriented patterns. Analyzes stored DOM JSON to identify interactive elements, content areas, and navigation patterns.",
         inputSchema: zodToJsonSchema(AnalyzeDOMStructureSchema),
         handler: this.analyzeDOMStructure.bind(this)
       },
       {
-        name: "navigate_dom_path", 
+        name: "dom_navigate_path", 
         description: "Navigate to specific elements in DOM JSON using dot notation paths (e.g., 'body.main.article[0].paragraphs[2]'). Extracts content and provides element information.",
         inputSchema: zodToJsonSchema(NavigateDOMPathSchema),
         handler: this.navigateDOMPath.bind(this)
       },
       {
-        name: "search_dom_elements",
+        name: "dom_search_elements",
         description: "Search for DOM elements by type, content, keywords, or attributes. Returns matching elements with their paths for further navigation.",
         inputSchema: zodToJsonSchema(SearchDOMElementsSchema),
         handler: this.searchDOMElements.bind(this)
       },
       {
-        name: "get_page_screenshot",
+        name: "dom_get_screenshot",
         description: "Retrieve stored screenshot for a page. Returns file path or base64 encoded image data for AI visual analysis.",
         inputSchema: zodToJsonSchema(GetPageScreenshotSchema),
         handler: this.getPageScreenshot.bind(this)
       },
       {
-        name: "analyze_screenshot", 
+        name: "dom_analyze_screenshot", 
         description: "AI-powered analysis of page screenshots with custom prompts. Can focus on specific regions and provide contextual insights.",
         inputSchema: zodToJsonSchema(AnalyzeScreenshotSchema),
         handler: this.analyzeScreenshot.bind(this)

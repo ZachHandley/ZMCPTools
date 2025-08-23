@@ -35,7 +35,7 @@ export const agentTypeSchema = z.enum([
 export const toolCategorySchema = z.enum([
   'core_tools',           // Basic tools like Read, Write, Edit, LS, Glob, Grep
   'execution_tools',      // Bash, command execution
-  'communication_tools',  // join_room, send_message, wait_for_messages
+  'communication_tools',  // join_room, send_message, list_rooms
   'knowledge_graph_tools', // store_knowledge_memory, search_knowledge_graph
   'agent_tools',          // spawn_agent, list_agents, terminate_agent
   'orchestration_tools',  // orchestrate_objective, create_task
@@ -242,7 +242,7 @@ export const AGENT_TYPE_DEFINITIONS: AgentTypeDefinitions = {
 export const TOOL_CATEGORY_MAPPINGS: Record<ToolCategory, string[]> = {
   core_tools: ['Read', 'Write', 'Edit', 'MultiEdit', 'LS', 'Glob', 'Grep'],
   execution_tools: ['Bash', 'Task'],
-  communication_tools: ['mcp__claude-mcp-tools__join_room', 'mcp__claude-mcp-tools__send_message', 'mcp__claude-mcp-tools__wait_for_messages'],
+  communication_tools: ['mcp__claude-mcp-tools__join_room', 'mcp__claude-mcp-tools__send_message', 'mcp__claude-mcp-tools__list_rooms'],
   knowledge_graph_tools: ['mcp__claude-mcp-tools__store_knowledge_memory', 'mcp__claude-mcp-tools__search_knowledge_graph'],
   agent_tools: ['mcp__claude-mcp-tools__spawn_agent', 'mcp__claude-mcp-tools__list_agents', 'mcp__claude-mcp-tools__terminate_agent'],
   orchestration_tools: ['mcp__claude-mcp-tools__orchestrate_objective', 'mcp__claude-mcp-tools__create_task'],

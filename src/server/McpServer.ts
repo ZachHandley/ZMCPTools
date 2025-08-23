@@ -1123,8 +1123,7 @@ export class McpToolsServer {
     // Find an available port
     const port = await this.findAvailablePort(preferredPort, host);
 
-    // Set up signal handlers for graceful shutdown
-    this.setupSignalHandlers();
+    // Signal handlers already set up in constructor, no need to duplicate
 
     // Create raw HTTP server
     this.httpServer = http.createServer(async (req, res) => {

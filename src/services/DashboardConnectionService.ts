@@ -84,7 +84,7 @@ export class DashboardConnectionService {
       maxReconnectAttempts: 10,
       reconnectDelay: 1000,
       maxReconnectDelay: 30000,
-      connectionCheckInterval: 5000,
+      connectionCheckInterval: 15000, // Check every 15 seconds instead of 5
       ...config
     };
 
@@ -170,15 +170,22 @@ export class DashboardConnectionService {
     logger.info('Starting dashboard connection check', { interval: this.config.connectionCheckInterval });
     
     const checkConnection = async () => {
-      if (!this.status.connected) {
-        logger.debug('Checking for dashboard connection...');
-        await this.checkAndConnect();
+      try {
+        if (!this.status.connected) {
+          logger.debug('Checking for dashboard connection...');
+          await this.checkAndConnect();
+        }
+      } catch (error) {
+        logger.debug('Connection check failed, will retry next cycle', error);
       }
       
-      this.connectionCheckTimeout = setTimeout(
-        checkConnection, 
-        this.config.connectionCheckInterval
-      );
+      // Only schedule next check if we haven't been shut down
+      if (this.connectionCheckTimeout !== undefined) {
+        this.connectionCheckTimeout = setTimeout(
+          checkConnection, 
+          this.config.connectionCheckInterval
+        );
+      }
     };
 
     checkConnection();
@@ -186,37 +193,39 @@ export class DashboardConnectionService {
 
   /**
    * Check for dashboard availability and connect if found
+   * Lightweight check that returns quickly
    */
   private async checkAndConnect(): Promise<void> {
     try {
-      logger.info('Checking for dashboard availability...');
+      logger.debug('Quick dashboard availability check...');
       const path = await import('path');
       const fs = await import('fs');
       const os = await import('os');
       
       const dashboardInfoPath = path.join(os.homedir(), '.mcptools', 'data', 'dashboard.port');
-      logger.debug(`Looking for dashboard info at: ${dashboardInfoPath}`);
       
+      // Quick file existence check
       if (!fs.existsSync(dashboardInfoPath)) {
-        logger.debug('No dashboard.port file found - dashboard not running');
-        return; // No dashboard running
+        logger.debug('No dashboard.port file - dashboard not running');
+        return;
       }
       
+      // Quick file read with timeout
       const dashboardInfo = JSON.parse(fs.readFileSync(dashboardInfoPath, 'utf8'));
-      logger.info(`Found dashboard info: ${JSON.stringify(dashboardInfo)}`);
       
-      // Check if we're already connected to this dashboard
+      // Check if already connected
       if (this.wsClient && this.status.url === dashboardInfo.wsUrl && this.status.connected) {
-        logger.info(`Already connected to dashboard at ${dashboardInfo.wsUrl}`);
-        return; // Already connected
+        logger.debug('Already connected to dashboard');
+        return;
       }
       
-      // Try to connect to dashboard WebSocket
-      logger.info(`Attempting to connect to dashboard WebSocket at ${dashboardInfo.wsUrl}`);
+      // Quick connection attempt with short timeout
+      logger.debug(`Attempting quick connect to ${dashboardInfo.wsUrl}`);
       await this.connectToDashboard(dashboardInfo.wsUrl);
       
     } catch (error) {
-      logger.error(`Dashboard connection check failed: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't log errors as warnings - just debug since this runs frequently
+      logger.debug('Dashboard quick check failed (normal if dashboard not running)', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -312,10 +321,11 @@ export class DashboardConnectionService {
     this.status.error = error instanceof Error ? error.message : String(error);
     this.status.lastAttemptAt = new Date();
     this.wsClient = null;
-
-    if (this.config.autoReconnect && this.status.reconnectAttempts < this.config.maxReconnectAttempts!) {
-      this.scheduleReconnection();
-    }
+    
+    logger.debug('Dashboard connection error - will retry on next check cycle', this.status.error);
+    
+    // Don't create additional timeouts - let the regular connection check handle retry
+    // This prevents infinite reconnection loops
   }
 
   /**
@@ -324,28 +334,10 @@ export class DashboardConnectionService {
   private handleConnectionClose(): void {
     this.status.connected = false;
     this.wsClient = null;
-
-    if (this.config.autoReconnect && this.status.reconnectAttempts < this.config.maxReconnectAttempts!) {
-      this.scheduleReconnection();
-    }
-  }
-
-  /**
-   * Schedule reconnection attempt with exponential backoff
-   */
-  private scheduleReconnection(): void {
-    this.status.reconnectAttempts++;
+    logger.debug('Dashboard connection closed - will check for reconnection on next cycle');
     
-    const delay = Math.min(
-      this.config.reconnectDelay! * Math.pow(2, this.status.reconnectAttempts - 1),
-      this.config.maxReconnectDelay!
-    );
-
-    logger.debug(`Scheduling reconnection attempt ${this.status.reconnectAttempts} in ${delay}ms`);
-
-    this.reconnectTimeout = setTimeout(() => {
-      this.checkAndConnect();
-    }, delay);
+    // Don't create additional timeouts - let the regular connection check handle reconnection
+    // This prevents the infinite loop issue
   }
 
   /**
@@ -793,10 +785,16 @@ export class DashboardConnectionService {
   public async shutdown(): Promise<void> {
     logger.info('Shutting down DashboardConnectionService...');
 
-    // Stop connection checks
+    // Stop connection checks and mark as shut down
     if (this.connectionCheckTimeout) {
       clearTimeout(this.connectionCheckTimeout);
       this.connectionCheckTimeout = undefined;
+    }
+
+    // Clear any pending reconnection timeouts
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = undefined;
     }
 
     // Disconnect from dashboard

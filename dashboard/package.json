@@ -4,28 +4,26 @@
   "description": "Web dashboard for ZMCPTools - Real-time monitoring and orchestration interface",
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch server.ts",
+    "dev:client": "vite",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc server.ts --outDir dist-server --target es2020 --module esnext --moduleResolution node",
+    "start": "node dist-server/server.js",
+    "preview": "npm run build && npm start"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.4",
-    "@astrojs/node": "^9.3.0",
-    "@astrojs/vue": "^5.1.0",
-    "@tailwindcss/vite": "^4.1.11",
-    "appwrite-utils": "^1.2.0",
-    "astro": "^5.11.1",
+    "hono": "^4.6.3",
+    "@hono/node-server": "^1.13.1",
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.44.2",
     "drizzle-zod": "^0.8.2",
     "marked": "^16.0.0",
     "sweetalert2": "^11.22.2",
-    "tailwindcss": "^4.1.11",
     "ulidx": "^2.4.1",
     "vue": "^3.5.13",
     "ws": "^8.18.0",
-    "zastro-websockets-node": "9.3.0-1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -33,7 +31,13 @@
     "@types/ws": "^8.5.13",
     "@typescript-eslint/eslint-plugin": "^8.36.0",
     "@typescript-eslint/parser": "^8.36.0",
+    "@vitejs/plugin-vue": "^5.1.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vite": "^6.0.3"
   }
 }

@@ -34,11 +34,19 @@ const initWebSocketClient = () => {
   if (!wsClientInstance && typeof window !== 'undefined') {
     console.log('🔌 Initializing singleton WebSocket client');
     
-    // Force correct WebSocket URL for Astro dev server
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = window.location.hostname;
-    const port = window.location.port || '4321'; // Default Astro port
-    const wsUrl = `${protocol}//${hostname}:${port}/api/ws`;
+    // WebSocket URL for Hono server
+    let wsUrl: string;
+    
+    if (import.meta.env.DEV) {
+      // Development: connect to Hono server on port 3000
+      wsUrl = 'ws://localhost:3000';
+    } else {
+      // Production: same host/port as the served app
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const hostname = window.location.hostname;
+      const port = window.location.port;
+      wsUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
+    }
     
     console.log('🔗 WebSocket URL:', wsUrl);
     wsClientInstance = new WebSocketClient(wsUrl);

@@ -4,7 +4,7 @@ export * from './communication';
 export * from './logs';
 export * from './memories';
 export * from './scraping';
-export * from './tasks';
+export * from './objectives';
 export * from './plans';
 export * from './knowledge-graph';
 export * from './projects';
@@ -42,7 +42,7 @@ export type {
   DependencyType,
   TaskFilter,
   TaskCreateRequest,
-} from './tasks';
+} from './objectives';
 
 export type {
   // Plan types
@@ -201,7 +201,7 @@ export {
   selectTaskDependencySchema,
   taskFilterSchema,
   taskCreateRequestSchema,
-} from './tasks';
+} from './objectives';
 
 export {
   // Plan schemas
@@ -332,7 +332,7 @@ export {
 // Re-export Drizzle table definitions
 export { memories } from './memories';
 export { agentSessions } from './agents';
-export { tasks, taskDependencies } from './tasks';
+export { tasks, taskDependencies } from './objectives';
 export { plans } from './plans';
 export { chatRooms, chatMessages, roomParticipants } from './communication';
 export { documentationSources, scrapeJobs, websites, websitePages } from './scraping';
@@ -361,7 +361,7 @@ import {
   updateTaskSchema,
   insertTaskDependencySchema,
   selectTaskDependencySchema
-} from './tasks';
+} from './objectives';
 import {
   plans,
   insertPlanSchema,

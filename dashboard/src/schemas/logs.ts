@@ -3,7 +3,7 @@ import { sqliteTable, text, real } from 'drizzle-orm/sqlite-core';
 import { relations, sql } from 'drizzle-orm';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { agentSessions } from './agents';
-import { tasks } from './tasks';
+import { tasks } from './objectives';
 
 // Zod v4 schemas for validation
 export const errorTypeSchema = z.enum([

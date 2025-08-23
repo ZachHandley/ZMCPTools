@@ -27,11 +27,15 @@ export class WebSocketClient {
   public onConnectionChange: ConnectionCallback | null = null;
 
   constructor(url?: string) {
-    // Connect to the WebSocket server on the same port at /api/ws
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = window.location.hostname;
-    const port = window.location.port;
-    this.url = url || `${protocol}//${hostname}:${port}/api/ws`;
+    if (url) {
+      this.url = url;
+    } else {
+      // Fallback to construct URL on same host
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const hostname = window.location.hostname;
+      const port = window.location.port;
+      this.url = `${protocol}//${hostname}:${port}`;
+    }
     console.log('WebSocket URL constructed:', this.url);
   }
 
@@ -78,10 +82,15 @@ export class WebSocketClient {
     // Start heartbeat to keep connection alive
     this.startHeartbeat();
 
-    // Subscribe to all events
+    // Identify as dashboard client and subscribe to all events
+    this.send({
+      type: 'identify',
+      clientType: 'dashboard'
+    });
+    
     this.send({
       type: 'subscribe',
-      events: ['*'] // Subscribe to all events
+      eventTypes: ['*'] // Subscribe to all events
     });
   }
 
@@ -91,31 +100,17 @@ export class WebSocketClient {
       
       // Handle different message types
       switch (data.type) {
-        case 'event':
-          if (this.onEvent) {
-            this.onEvent(data.payload);
-          }
-          break;
         case 'welcome':
           // Welcome message from server - connection established
           console.log('WebSocket welcome message received:', data.clientId || 'Connected');
-          break;
-        case 'mcp-project-connected':
-          console.log('MCP project connected:', data.payload);
           if (this.onEvent) {
-            this.onEvent({ type: 'mcp-project-connected', ...data.payload });
+            this.onEvent(data);
           }
           break;
-        case 'mcp-project-disconnected':
-          console.log('MCP project disconnected:', data.payload);
+        case 'connection-stats-update':
+          console.log('Connection stats update:', data.payload);
           if (this.onEvent) {
-            this.onEvent({ type: 'mcp-project-disconnected', ...data.payload });
-          }
-          break;
-        case 'mcp-event':
-          console.log('MCP event received:', data.payload);
-          if (this.onEvent) {
-            this.onEvent(data.payload);
+            this.onEvent(data);
           }
           break;
         case 'pong':
@@ -125,7 +120,11 @@ export class WebSocketClient {
           console.error('WebSocket server error:', data.message);
           break;
         default:
-          console.log('Unknown WebSocket message type:', data.type);
+          // All other events are passed directly to the event handler
+          console.log('WebSocket event received:', data.type, data);
+          if (this.onEvent) {
+            this.onEvent(data);
+          }
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error, event.data);
@@ -193,7 +192,7 @@ export class WebSocketClient {
   subscribeToEvents(eventTypes: string[]): void {
     this.send({
       type: 'subscribe',
-      events: eventTypes
+      eventTypes: eventTypes
     });
   }
 

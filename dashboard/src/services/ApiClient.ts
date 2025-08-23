@@ -206,17 +206,17 @@ export class ApiClient {
     });
   }
 
-  async getTasks(repositoryPath?: string, status?: string): Promise<any[]> {
+  async getObjectives(repositoryPath?: string, status?: string): Promise<any[]> {
     const params = new URLSearchParams();
     if (repositoryPath) params.append('repository', repositoryPath);
     if (status) params.append('status', status);
     
     const query = params.toString();
-    return this.request<any[]>(`/tasks.json${query ? `?${query}` : ''}`);
+    return this.request<any[]>(`/objectives.json${query ? `?${query}` : ''}`);
   }
 
-  async getTask(id: string): Promise<any> {
-    return this.request<any>(`/tasks/${id}.json`);
+  async getObjective(id: string): Promise<any> {
+    return this.request<any>(`/objectives/${id}.json`);
   }
 
   async getSystemHealth(): Promise<{ status: string; uptime: number; version: string }> {

@@ -26,15 +26,9 @@ import { DatabaseManager } from '../database/index.js';
 import { createHash, randomUUID } from 'crypto';
 import { serializeDOMWithPlaywright, sanitizeHTMLContent, convertHTMLToMarkdown, type SerializationOptions, AI_OPTIMIZED_OPTIONS } from '../utils/domToJson.js';
 import {
-  BrowserCreateSessionSchema,
   BrowserNavigateAndScrapeSchema,
   BrowserInteractWithPageSchema,
-  BrowserManageSessionsSchema,
-  BrowserLegacyNavigateSchema,
-  BrowserLegacyScrapeSchema,
-  BrowserScreenshotSchema,
-  BrowserExecuteScriptSchema,
-  BrowserInteractSchema
+  BrowserManageSessionsSchema
 } from '../schemas/tools/browser.js';
 
 /**
@@ -199,18 +193,11 @@ export class BrowserTools {
   }
 
   /**
-   * Get optimized browser-related MCP tools (Phase 4)
-   * Consolidated from 8 tools to 5 essential tools with smart session management
+   * Get consolidated browser tools - reduced from 11 to 3 core tools
+   * Auto-session creation integrated into navigate_and_scrape for streamlined workflow
    */
   getTools(): McpTool[] {
     return [
-      {
-        name: 'create_browser_session',
-        description: 'Create a new browser session with intelligent auto-close and session management',
-        inputSchema: zodToJsonSchema(BrowserCreateSessionSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.createBrowserSessionEnhanced(args)
-      },
       {
         name: 'navigate_and_scrape',
         description: 'Navigate to a URL and optionally scrape content in one operation. Auto-creates session if needed.',
@@ -231,56 +218,6 @@ export class BrowserTools {
         inputSchema: zodToJsonSchema(BrowserManageSessionsSchema),
         outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
         handler: (args: any) => this.manageBrowserSessions(args)
-      },
-      // Legacy tools for backward compatibility
-      {
-        name: 'navigate_to_url',
-        description: '[LEGACY] Navigate to a URL in an existing browser session. Use navigate_and_scrape instead.',
-        inputSchema: zodToJsonSchema(BrowserLegacyNavigateSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.navigateToUrl(args)
-      },
-      {
-        name: 'scrape_content',
-        description: '[LEGACY] Scrape content from the current page. Use navigate_and_scrape instead.',
-        inputSchema: zodToJsonSchema(BrowserLegacyScrapeSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.scrapeContent(args)
-      },
-      {
-        name: 'take_screenshot',
-        description: '[LEGACY] Take a screenshot of the current page. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserScreenshotSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.takeScreenshot(args)
-      },
-      {
-        name: 'execute_browser_script',
-        description: '[LEGACY] Execute JavaScript in the browser context. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserExecuteScriptSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.executeScript(args)
-      },
-      {
-        name: 'interact_with_element',
-        description: '[LEGACY] Interact with a page element. Use interact_with_page instead.',
-        inputSchema: zodToJsonSchema(BrowserInteractSchema),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.interactWithElement(args)
-      },
-      {
-        name: 'close_browser_session',
-        description: '[LEGACY] Close a browser session. Use manage_browser_sessions instead.',
-        inputSchema: zodToJsonSchema(z.object({ session_id: z.string() })),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.closeBrowserSession(args)
-      },
-      {
-        name: 'list_browser_sessions',
-        description: '[LEGACY] List all browser sessions. Use manage_browser_sessions instead.',
-        inputSchema: zodToJsonSchema(z.object({})),
-        outputSchema: zodToJsonSchema(BrowserOperationResponseSchema),
-        handler: (args: any) => this.listBrowserSessions()
       }
     ];
   }
@@ -1260,14 +1197,27 @@ export class BrowserTools {
   // MCP Enhanced Methods
   // ===================================
 
-  private async createBrowserSessionEnhanced(args: z.infer<typeof BrowserCreateSessionSchema>) {
-    const params = BrowserCreateSessionSchema.parse(args);
-    
+  /**
+   * Enhanced session creation for internal use by navigate_and_scrape
+   * Handles auto-creation with intelligent session management
+   */
+  private async createBrowserSessionEnhanced(params: {
+    browser_type?: 'chromium' | 'firefox' | 'webkit';
+    workflow_type?: 'documentation' | 'automation' | 'testing';
+    auto_close?: boolean;
+    headless?: boolean;
+    viewport_width?: number;
+    viewport_height?: number;
+    user_agent?: string;
+    agent_id?: string;
+    session_timeout?: number;
+    max_idle_time?: number;
+  }) {
     const result = await this.createBrowserSessionCore(
       params.browser_type,
       {
-        headless: params.headless,
-        viewport: { width: params.viewport_width, height: params.viewport_height },
+        headless: params.headless ?? true,
+        viewport: { width: params.viewport_width ?? 1920, height: params.viewport_height ?? 1080 },
         userAgent: params.user_agent,
         agentId: params.agent_id
       }
@@ -1277,8 +1227,8 @@ export class BrowserTools {
       // Store session metadata for intelligent management
       this.sessionMetadata.set(result.sessionId, {
         sessionId: result.sessionId,
-        workflowType: params.workflow_type,
-        autoClose: params.auto_close,
+        workflowType: params.workflow_type ?? 'automation',
+        autoClose: params.auto_close ?? true,
         createdAt: new Date(),
         lastActivity: new Date(),
         taskCompleted: false
@@ -1290,26 +1240,26 @@ export class BrowserTools {
           this.repositoryPath,
           params.agent_id,
           'Browser session created',
-          `Created ${params.browser_type} session ${result.sessionId} for ${params.workflow_type} workflow (auto-close: ${params.auto_close})`,
-          ['browser', 'session', 'created', params.workflow_type, params.browser_type]
+          `Created ${params.browser_type || 'chromium'} session ${result.sessionId} for ${params.workflow_type || 'automation'} workflow (auto-close: ${params.auto_close ?? true})`,
+          ['browser', 'session', 'created', params.workflow_type || 'automation', params.browser_type || 'chromium']
         );
       }
 
       // Set up auto-close timer for non-documentation workflows
-      if (params.auto_close && params.workflow_type !== 'documentation') {
+      if ((params.auto_close ?? true) && (params.workflow_type ?? 'automation') !== 'documentation') {
         setTimeout(() => {
           this.autoCloseSession(result.sessionId);
-        }, params.session_timeout);
+        }, params.session_timeout ?? 30 * 60 * 1000);
       }
     }
 
     const enhancedResult = {
       ...result,
       sessionConfig: {
-        workflowType: params.workflow_type,
-        autoClose: params.auto_close,
-        sessionTimeout: params.session_timeout,
-        maxIdleTime: params.max_idle_time
+        workflowType: params.workflow_type ?? 'automation',
+        autoClose: params.auto_close ?? true,
+        sessionTimeout: params.session_timeout ?? 30 * 60 * 1000,
+        maxIdleTime: params.max_idle_time ?? 10 * 60 * 1000
       }
     };
 
@@ -2111,138 +2061,6 @@ export class BrowserTools {
     await this.closeAllSessions(true);
   }
   
-  // Legacy method implementations for backward compatibility
-  private async navigateToUrl(args: z.infer<typeof BrowserLegacyNavigateSchema>) {
-    const params = BrowserLegacyNavigateSchema.parse(args);
-    
-    this.updateSessionActivity(params.session_id);
-    
-    const result = await this.navigateToUrlCore(
-      params.session_id,
-      params.url,
-      {
-        waitUntil: params.wait_until,
-        timeout: params.timeout
-      }
-    );
-
-    const enhancedResult = {
-      ...result,
-      sessionId: params.session_id
-    };
-
-    return this.transformResultData(enhancedResult, 'navigate_to_url');
-  }
-  
-  private async scrapeContent(args: z.infer<typeof BrowserLegacyScrapeSchema>) {
-    const params = BrowserLegacyScrapeSchema.parse(args);
-    
-    this.updateSessionActivity(params.session_id);
-    
-    const result = await this.scrapeContentCore(
-      params.session_id,
-      {
-        selector: params.selector,
-        waitForSelector: params.wait_for_selector,
-        extractText: params.extract_text,
-        extractHtml: params.extract_html,
-        extractLinks: params.extract_links,
-        extractImages: params.extract_images
-      }
-    );
-
-    const enhancedResult = {
-      ...result,
-      sessionId: params.session_id
-    };
-
-    return this.transformResultData(enhancedResult, 'scrape_content');
-  }
-  
-  private async takeScreenshot(args: z.infer<typeof BrowserScreenshotSchema>) {
-    const params = BrowserScreenshotSchema.parse(args);
-    
-    this.updateSessionActivity(params.session_id);
-    
-    const result = await this.takeScreenshotCore(
-      params.session_id,
-      params.filepath,
-      {
-        fullPage: params.full_page,
-        quality: params.quality,
-        type: params.type,
-        returnForAI: params.return_for_ai ?? false
-      }
-    );
-
-    const enhancedResult = {
-      ...result,
-      sessionId: params.session_id
-    };
-
-    return this.transformResultData(enhancedResult, 'take_screenshot');
-  }
-  
-  private async executeScript(args: z.infer<typeof BrowserExecuteScriptSchema>) {
-    const params = BrowserExecuteScriptSchema.parse(args);
-    
-    this.updateSessionActivity(params.session_id);
-    
-    const result = await this.executeScriptCore(
-      params.session_id,
-      params.script,
-      params.args
-    );
-
-    const enhancedResult = {
-      ...result,
-      sessionId: params.session_id,
-      scriptResult: result.result
-    };
-
-    return this.transformResultData(enhancedResult, 'execute_browser_script');
-  }
-  
-  private async interactWithElement(args: z.infer<typeof BrowserInteractSchema>) {
-    const params = BrowserInteractSchema.parse(args);
-    
-    this.updateSessionActivity(params.session_id);
-    
-    const result = await this.interactWithElementCore(
-      params.session_id,
-      params.action,
-      params.selector,
-      params.value
-    );
-
-    const enhancedResult = {
-      ...result,
-      sessionId: params.session_id,
-      action: params.action,
-      selector: params.selector,
-      value: params.value
-    };
-
-    return this.transformResultData(enhancedResult, 'interact_with_element');
-  }
-  
-  private async closeBrowserSession(args: any) {
-    const { session_id } = z.object({ session_id: z.string() }).parse(args);
-    
-    const result = await this.closeBrowserSessionEnhanced(session_id, false);
-    
-    const enhancedResult = {
-      ...result,
-      sessionId: session_id
-    };
-    
-    return this.transformResultData(enhancedResult, 'close_browser_session');
-  }
-  
-  private async listBrowserSessions() {
-    const result = await this.listBrowserSessionsEnhanced();
-    return this.transformResultData(result, 'list_browser_sessions');
-  }
 }
 
 // Export schemas for MCP server registration

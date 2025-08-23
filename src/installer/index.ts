@@ -251,6 +251,54 @@ function copyProjectHooks(): void {
   }
 }
 
+function copySubagentsAndMemory(): void {
+  logStep('🤖', 'Installing Claude Code subagents...');
+  
+  const projectClaudeDir = path.join(process.cwd(), '.claude');
+  const agentsDir = path.join(projectClaudeDir, 'agents');
+  fs.mkdirSync(agentsDir, { recursive: true });
+  
+  // Copy subagent files from src/agents to .claude/agents
+  const srcAgentsDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'agents');
+  
+  if (fs.existsSync(srcAgentsDir)) {
+    const agentFiles = fs.readdirSync(srcAgentsDir).filter(file => file.endsWith('.md'));
+    
+    agentFiles.forEach(agentFile => {
+      const srcPath = path.join(srcAgentsDir, agentFile);
+      const destPath = path.join(agentsDir, agentFile);
+      
+      try {
+        fs.copyFileSync(srcPath, destPath);
+        logSuccess(`Installed subagent: ${agentFile.replace('.md', '')}`);
+      } catch (error) {
+        logWarning(`Failed to copy subagent ${agentFile}: ${error}`);
+      }
+    });
+    
+    logSuccess(`${agentFiles.length} production-ready subagents installed`);
+  } else {
+    logWarning('Source agents directory not found, skipping subagent installation');
+  }
+  
+  // Copy memory files to .claude/
+  const memoryFiles = ['project-context.md', 'tool-shortcuts.md'];
+  
+  memoryFiles.forEach(memoryFile => {
+    const srcPath = path.join(srcAgentsDir, memoryFile);
+    const destPath = path.join(projectClaudeDir, memoryFile);
+    
+    try {
+      if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        logSuccess(`Installed memory file: ${memoryFile}`);
+      }
+    } catch (error) {
+      logWarning(`Failed to copy memory file ${memoryFile}: ${error}`);
+    }
+  });
+}
+
 function updateHookConfiguration(): void {
   logStep('⚙️', 'Configuring Claude hooks...');
   
@@ -854,24 +902,18 @@ function createProjectConfig(): void {
     "Task",
     "exit_plan_mode",
 
-    // ALL 45 MCP tools for full autonomous operation
-    // Agent Orchestration Tools (17 tools)
+    // ALL 38 MCP tools for full autonomous operation (consolidated communication tools)
+    // Agent Orchestration Tools (10 tools)
     "mcp__claude-mcp-tools__orchestrate_objective",
     "mcp__claude-mcp-tools__spawn_agent",
     "mcp__claude-mcp-tools__create_task",
     "mcp__claude-mcp-tools__join_room",
     "mcp__claude-mcp-tools__send_message",
-    "mcp__claude-mcp-tools__wait_for_messages",
+    "mcp__claude-mcp-tools__list_rooms",
     "mcp__claude-mcp-tools__store_knowledge_memory",
     "mcp__claude-mcp-tools__search_knowledge_graph",
     "mcp__claude-mcp-tools__list_agents",
     "mcp__claude-mcp-tools__terminate_agent",
-    "mcp__claude-mcp-tools__close_room",
-    "mcp__claude-mcp-tools__delete_room",
-    "mcp__claude-mcp-tools__list_rooms",
-    "mcp__claude-mcp-tools__list_room_messages",
-    "mcp__claude-mcp-tools__create_delayed_room",
-    "mcp__claude-mcp-tools__analyze_coordination_patterns",
     "mcp__claude-mcp-tools__monitor_agents",
 
     // Browser Automation Tools (6 tools)
@@ -924,16 +966,10 @@ function createProjectConfig(): void {
   const existingPermissions = existingSettings.permissions?.allow || [];
   const mergedPermissions = Array.from(new Set([...existingPermissions, ...requiredPermissions]));
   
-  // Create merged settings (without mcpServers - we'll add that via CLI)
+  // Create merged settings (env vars will be set via process.env and cross-env)
   const settings = {
     ...existingSettings,
     includeCoAuthoredBy: false,
-    env: {
-      CLAUDE_CODE_MAX_OUTPUT_TOKENS: "62000",
-      MAX_MCP_OUTPUT_TOKENS: "62000",
-      MCP_TIMEOUT: "60000",
-      ...existingSettings.env,
-    },
     permissions: {
       ...existingSettings.permissions,
       allow: mergedPermissions,
@@ -943,6 +979,33 @@ function createProjectConfig(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   
   logSuccess('Project configuration created/updated');
+  
+  // Set Claude Code environment variables using claude config set
+  logStep('🔧', 'Setting Claude Code environment variables...');
+  try {
+    execSync('claude config set CLAUDE_CODE_MAX_OUTPUT_TOKENS 62000', { stdio: 'pipe' });
+    execSync('claude config set MAX_MCP_OUTPUT_TOKENS 62000', { stdio: 'pipe' });
+    execSync('claude config set MCP_TIMEOUT 60000', { stdio: 'pipe' });
+    logSuccess('Claude Code environment variables configured');
+  } catch (error) {
+    logWarning(`Failed to set Claude Code environment variables: ${error}`);
+    logWarning('You may need to set these manually: CLAUDE_CODE_MAX_OUTPUT_TOKENS=62000, MAX_MCP_OUTPUT_TOKENS=62000, MCP_TIMEOUT=60000');
+  }
+  
+  // Install cross-env for setting MCPTOOLS_DATA_DIR environment variable
+  logStep('🌍', 'Installing cross-env for MCP tools environment variable support...');
+  try {
+    const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    if (!packageJson.dependencies?.['cross-env'] && !packageJson.devDependencies?.['cross-env']) {
+      execSync(`${packageManager!.command} add cross-env`, { stdio: 'pipe' });
+      logSuccess('cross-env installed for MCPTOOLS_DATA_DIR support');
+    } else {
+      logSuccess('cross-env already available for MCPTOOLS_DATA_DIR support');
+    }
+  } catch (error) {
+    logWarning(`Failed to install cross-env: ${error}`);
+    logWarning('Environment variables may not work properly across platforms');
+  }
 }
 
 // Port finding function removed - not needed for stdio transport
@@ -1455,6 +1518,7 @@ export async function install(options: { globalOnly?: boolean; projectOnly?: boo
   if (!options.globalOnly) {
     createProjectConfig();
     copyProjectHooks();
+    copySubagentsAndMemory();
     updateHookConfiguration();
     updateGitignore();
     setupGitCommitProtection();

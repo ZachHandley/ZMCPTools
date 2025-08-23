@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getTasks, JSON_HEADERS } from '../../utils/simpleDatabase.js';
+import { getObjectives, JSON_HEADERS } from '../../utils/simpleDatabase.js';
 
 export const GET: APIRoute = async ({ request }) => {
   try {
@@ -8,15 +8,15 @@ export const GET: APIRoute = async ({ request }) => {
     const repository = url.searchParams.get('repository');
     const status = url.searchParams.get('status');
     
-    const tasks = await getTasks(repository || '.', status || undefined);
+    const objectives = await getObjectives(repository || '.', status || undefined);
     
-    return new Response(JSON.stringify(tasks), {
+    return new Response(JSON.stringify(objectives), {
       status: 200,
       headers: JSON_HEADERS
     });
   } catch (error) {
-    console.error('Failed to get tasks:', error);
-    return new Response(JSON.stringify({ error: 'Failed to get tasks' }), {
+    console.error('Failed to get objectives:', error);
+    return new Response(JSON.stringify({ error: 'Failed to get objectives' }), {
       status: 500,
       headers: JSON_HEADERS
     });

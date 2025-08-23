@@ -109,8 +109,8 @@
                 </div>
                 <div class="ml-5 w-0 flex-1">
                   <dl>
-                    <dt class="text-sm font-medium text-gray-500 truncate">Running Tasks</dt>
-                    <dd class="text-lg font-medium text-gray-900">{{ stats.tasks.running }}</dd>
+                    <dt class="text-sm font-medium text-gray-500 truncate">Running Objectives</dt>
+                    <dd class="text-lg font-medium text-gray-900">{{ stats.objectives.running }}</dd>
                   </dl>
                 </div>
               </div>
@@ -291,7 +291,7 @@ const showEventsSidebar = ref(false);
 const stats = ref({
   projects: { active: 0, total: 0 },
   agents: { active: 0, idle: 0, completed: 0, failed: 0 },
-  tasks: { running: 0, pending: 0, completed: 0 },
+  objectives: { running: 0, pending: 0, completed: 0 },
   rooms: { active: 0, total: 0 },
   plans: { active: 0, total: 0, completed: 0 }
 });

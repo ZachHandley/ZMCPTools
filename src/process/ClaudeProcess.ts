@@ -759,11 +759,7 @@ export class ClaudeProcess extends EventEmitter {
       communication: [
         "join_room",
         "send_message",
-        "wait_for_messages",
         "list_rooms",
-        "list_room_messages",
-        "close_room",
-        "delete_room",
       ],
       knowledge: [
         "store_memory",
@@ -850,16 +846,8 @@ export class ClaudeProcess extends EventEmitter {
           return "- `join_room(room_name, agent_name)` - Join real-time communication room for coordination";
         case "send_message":
           return "- `send_message(room_name, message, mentions)` - Send messages to coordinate with other agents";
-        case "wait_for_messages":
-          return "- `wait_for_messages(room_name, timeout)` - Wait for messages from other agents";
         case "list_rooms":
-          return "- `list_rooms(repository_path, status, limit, offset)` - View available communication rooms";
-        case "list_room_messages":
-          return "- `list_room_messages(room_name, limit, offset)` - View room chat history";
-        case "close_room":
-          return "- `close_room(room_name, terminate_agents)` - Close room and cleanup agents";
-        case "delete_room":
-          return "- `delete_room(room_name, force_delete)` - Permanently delete room";
+          return "- `list_rooms(repository_path, status, limit, offset)` - View available communication rooms with message previews";
         default:
           return `- \`${toolName}()\` - Communication tool`;
       }

@@ -874,7 +874,7 @@ ORCHESTRATION PHASES:
 4. **COORDINATED AGENT EXECUTION**
    - spawn_agent() specialist agents with specific objective assignments
    - Create sub-objectives using create_objective() for complex work
-   - Monitor progress through room messages: wait_for_messages()
+   - Monitor progress through room listings with message previews: list_rooms()
    - Handle conflicts and dependencies proactively
    - Ensure quality gates and completion criteria
    
@@ -896,7 +896,7 @@ AVAILABLE ORCHESTRATION TOOLS:
 - spawn_agent() - Create specialized agents (they'll be prompted to use objective tools)
 - join_room() - Join coordination rooms
 - send_message() - Communicate with agents
-- wait_for_messages() - Monitor conversations
+- list_rooms() - Monitor room activity with message previews
 - store_knowledge_memory() - Share insights, decisions, and patterns
 - search_knowledge_graph() - Learn from previous work and knowledge graph
 - list_agents() - Check agent status and coordination needs

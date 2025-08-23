@@ -1,3 +1,8 @@
+packages:
+  - '!'
+  - 'dashboard'
+configDependencies:
+  package.json: 2.0.1+sha512-pSxZ6XR5yEawRN2ekxx9IKgPN5uNAYco7MCPxtBEWMKO3UKWa1X2CtQMzMgloeGj2g2o6cue3Sb5iPkByIJqlw==
 onlyBuiltDependencies:
   - '@anthropic-ai/claude-code'
   - better-sqlite3

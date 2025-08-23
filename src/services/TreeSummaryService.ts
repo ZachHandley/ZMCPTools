@@ -620,7 +620,7 @@ export class TreeSummaryService {
           };
           
           // Only go 2 levels deep to avoid performance issues
-          if (projectPath.split(path.sep).length < projectPath.split(path.sep).length + 2) {
+          if (entryPath.split(path.sep).length < projectPath.split(path.sep).length + 2) {
             try {
               const grandChildren = await fs.readdir(entryPath, { withFileTypes: true });
               for (const grandChild of grandChildren.slice(0, 10)) { // Limit to first 10 for performance

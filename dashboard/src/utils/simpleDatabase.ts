@@ -140,7 +140,7 @@ export async function terminateAgent(id: string) {
   return result;
 }
 
-export async function getTasks(repository?: string, status?: string) {
+export async function getObjectives(repository?: string, status?: string) {
   const db = getDrizzleDatabase();
   let query = db.select().from(tasks);
   
@@ -342,7 +342,7 @@ export async function getSystemStats() {
     failed: agentStats.failed || 0 
   };
   
-  const tasksResult = { 
+  const objectivesResult = { 
     running: taskStats.in_progress || 0, 
     pending: taskStats.pending || 0, 
     completed: taskStats.completed || 0 
@@ -357,7 +357,7 @@ export async function getSystemStats() {
   const result = {
     projects: projectsResult,
     agents: agentsResult,
-    tasks: tasksResult,
+    objectives: objectivesResult,
     rooms: {
       active: roomCount,
       total: roomCount
